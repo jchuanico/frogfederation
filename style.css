@@ -1,0 +1,23 @@
+/* Plain Google Sites-style layout: white page, logo + title header, simple nav. */
+body{margin:0;background:#fff;color:#212121;font-family:"Open Sans",Arial,sans-serif;font-size:16px;line-height:1.6}
+header{background:#fff;border-bottom:1px solid #e0e0e0;padding:12px 24px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px}
+.brand,.brand-inline{display:inline-flex;align-items:center;gap:10px;color:#212121;text-decoration:none;font-size:22px}
+.brand img,.brand-inline img{width:40px;height:40px;object-fit:cover}
+nav ul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:4px 18px}
+nav li{position:relative}
+nav a{color:#212121;text-decoration:none;font-size:14px}
+nav a[aria-current]{font-weight:700;text-decoration:underline}
+nav li ul{display:none;position:absolute;left:0;top:100%;background:#fff;border:1px solid #e0e0e0;padding:6px 12px;flex-direction:column;gap:4px;z-index:5;white-space:nowrap}
+nav li:hover>ul,nav li:focus-within>ul{display:flex}
+main{max-width:900px;margin:0 auto;padding:24px;overflow-wrap:anywhere}
+h1{font-size:32px;font-weight:400}
+h2{font-size:24px;font-weight:400}
+h3{font-size:18px;font-weight:600}
+.big{font-size:40px;margin:0}
+a{color:#1a73e8}
+img{max-width:100%;height:auto}
+.img{margin:16px 0}
+.embed a{display:inline-block;border:1px solid #dadce0;border-radius:8px;padding:10px 16px}
+.goto{margin-top:48px;border-top:1px solid #e0e0e0;padding-top:16px}
+.goto p{margin:4px 0}
+@media (max-width:600px){nav li ul{position:static;display:flex;border:0;padding:4px 0 0 12px}}
