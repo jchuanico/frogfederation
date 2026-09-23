@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#05060f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>One Piece Frog Style</title>
+<meta name="description" content="One Piece Frog Style — an unofficial, non-commercial fan-made 2-vs-2 tag fighting game. ONE PIECE © Eiichiro Oda / Shueisha, Toei Animation.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bangers&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="game.css">
+</head>
+<body>
+<canvas id="game" aria-label="One Piece Frog Style game screen"></canvas>
+
+<div id="touch" hidden>
+  <div id="stick-zone"><div id="stick"><div id="knob"></div></div><span class="hint">MOVE</span></div>
+  <div id="buttons">
+    <button data-b="L" class="b-l">L</button>
+    <button data-b="H" class="b-h">H</button>
+    <button data-b="S" class="b-s">SP</button>
+    <button data-b="X" class="b-x">HYPER</button>
+    <button data-b="A" class="b-a">ASSIST</button>
+    <button data-b="T" class="b-t">TAG</button>
+  </div>
+  <button id="pause-btn" aria-label="Pause">II</button>
+</div>
+
+<div id="rotate" hidden>
+  <div class="rot-icon">📱↻</div>
+  <p>Turn your phone sideways for the best view.</p>
+  <button id="rotate-dismiss">Play anyway</button>
+</div>
+
+<noscript><p class="noscript">One Piece Frog Style needs JavaScript. Unofficial fan game — ONE PIECE © Eiichiro Oda / Shueisha, Toei Animation.</p></noscript>
+
+<script src="js/core.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/input.js"></script>
+<script src="js/draw.js"></script>
+<script src="js/characters.js"></script>
+<script src="js/fighter.js"></script>
+<script src="js/stage.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/match.js"></script>
+<script src="js/hud.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+/* One Piece Frog Style — page shell, touch controls and rotate hint. */
+html, body { margin: 0; height: 100%; background: #05060f; overflow: hidden; overscroll-behavior: none; }
+body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; font-family: Bangers, Impact, sans-serif; }
+canvas#game { position: fixed; inset: 0; display: block; }
+
+#touch { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+#touch[hidden] { display: none; }
+#stick-zone { position: absolute; left: 0; bottom: 0; width: 45%; height: 70%; pointer-events: auto; touch-action: none; }
+#stick-zone .hint { position: absolute; left: max(24px, env(safe-area-inset-left)); bottom: 18px; color: rgba(255,255,255,.35); font-size: 16px; letter-spacing: 2px; }
+#stick { position: absolute; left: 110px; top: 60%; width: 128px; height: 128px; margin: -64px 0 0 -64px; border-radius: 50%;
+  background: rgba(255,255,255,.08); border: 3px solid rgba(255,255,255,.25); opacity: .55; transition: opacity .15s; }
+#stick.on { opacity: 1; }
+#knob { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff7c2, #e8c547 60%, #b8901e); border: 3px solid #1b1216; }
+
+#buttons { position: absolute; right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); width: 270px; height: 230px; pointer-events: none; }
+#buttons button { position: absolute; pointer-events: auto; touch-action: none; border-radius: 50%; border: 3px solid #1b1216; color: #fff;
+  font: 20px Bangers, Impact, sans-serif; letter-spacing: 1px; text-shadow: 0 2px 0 #1b1216; opacity: .7; padding: 0;
+  box-shadow: 0 4px 0 rgba(0,0,0,.45); -webkit-tap-highlight-color: transparent; }
+#buttons button.on { transform: translateY(3px) scale(.95); box-shadow: 0 1px 0 rgba(0,0,0,.45); opacity: 1; filter: brightness(1.25); }
+.b-l { width: 74px; height: 74px; right: 176px; bottom: 20px; background: #3b82d6; }
+.b-h { width: 74px; height: 74px; right: 96px; bottom: 64px; background: #d62828; }
+.b-s { width: 86px; height: 86px; right: 4px; bottom: 100px; background: #f08a1c; font-size: 24px !important; }
+.b-x { width: 70px; height: 70px; right: 0; bottom: 8px; background: #b03ad6; font-size: 16px !important; }
+.b-a { width: 60px; height: 60px; right: 196px; bottom: 116px; background: #2f9a4a; font-size: 14px !important; }
+.b-t { width: 60px; height: 60px; right: 120px; bottom: 160px; background: #555c75; font-size: 16px !important; }
+#pause-btn { position: absolute; top: max(8px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%) translateY(92px); pointer-events: auto;
+  width: 44px; height: 32px; border-radius: 8px; border: 2px solid #1b1216; background: rgba(20,20,40,.7); color: #ffe14d; font: 18px Bangers, Impact, sans-serif; }
+
+#rotate { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  background: rgba(5,6,15,.94); color: #fff; text-align: center; padding: 24px; font-size: 22px; letter-spacing: 1px; }
+#rotate[hidden] { display: none; }
+#rotate .rot-icon { font-size: 64px; }
+#rotate button { font: 20px Bangers, Impact, sans-serif; padding: 10px 22px; border-radius: 10px; border: 3px solid #1b1216; background: #e8c547; color: #1b1216; }
+.noscript { color: #fff; padding: 24px; font-family: sans-serif; }
+
+@media (max-height: 420px) {
+  #buttons { transform: scale(.82); transform-origin: bottom right; }
+  #stick { width: 110px; height: 110px; margin: -55px 0 0 -55px; }
+}
