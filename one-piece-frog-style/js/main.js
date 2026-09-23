@@ -22,7 +22,29 @@
   window.addEventListener('orientationchange', () => setTimeout(resize, 200));
   resize();
 
-  // ---------- clickable regions for mouse / touch menus ----------
+  // ---------- iOS Safari zoom guard ----------
+  // Safari ignores user-scalable=no, so rapid button taps (double-tap zoom) or a pinch
+  // zoom the whole page and push the controls off screen. Block those gestures, and if
+  // the page still ends up zoomed, re-apply the viewport to snap it back to 1×.
+  const opts = { passive: false };
+  document.addEventListener('gesturestart', (e) => e.preventDefault(), opts);
+  document.addEventListener('gesturechange', (e) => e.preventDefault(), opts);
+  document.addEventListener('touchmove', (e) => { if (e.touches.length > 1 || (e.scale && e.scale !== 1)) e.preventDefault(); }, opts);
+  let lastTouchEnd = 0;
+  document.addEventListener('touchend', (e) => { const now = Date.now(); if (now - lastTouchEnd < 400) e.preventDefault(); lastTouchEnd = now; }, opts);
+  document.addEventListener('dblclick', (e) => e.preventDefault(), opts);
+  const vmeta = document.querySelector('meta[name=viewport]');
+  const VIEWPORT = vmeta ? vmeta.content : '';
+  function unzoom() {
+    const vv = window.visualViewport;
+    if (!vmeta || !vv || Math.abs(vv.scale - 1) < 0.01) return;
+    vmeta.content = VIEWPORT + ', minimum-scale=1';
+    setTimeout(() => { vmeta.content = VIEWPORT; resize(); }, 60);
+  }
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', () => { unzoom(); resize(); });
+  window.addEventListener('orientationchange', () => setTimeout(unzoom, 250));
+
+
   let regions = [], nextRegions = [];
   function region(x, y, w, h, fn, id) { nextRegions.push({ x, y, w, h, fn, id }); }
   let hoverId = null;
@@ -539,7 +561,7 @@
     zone.addEventListener('pointerup', end); zone.addEventListener('pointercancel', end);
     for (const b of document.querySelectorAll('#touch [data-b]')) {
       const key = b.dataset.b;
-      const on = (e) => { e.preventDefault(); OP.Audio.init(); tIn[key] = true; b.classList.add('on'); try { b.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ } };
+      const on = (e) => { e.preventDefault(); OP.Audio.init(); tIn[key] = true; OP.Input.tapTouch(key); b.classList.add('on'); try { b.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ } };
       const off = () => { tIn[key] = false; b.classList.remove('on'); };
       b.addEventListener('pointerdown', on); b.addEventListener('pointerup', off); b.addEventListener('pointercancel', off); b.addEventListener('lostpointercapture', off);
     }

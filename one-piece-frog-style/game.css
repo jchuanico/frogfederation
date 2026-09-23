@@ -1,7 +1,9 @@
 /* One Piece Frog Style — page shell, touch controls and rotate hint. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; touch-action: none; }
 html, body { margin: 0; height: 100%; background: #05060f; overflow: hidden; overscroll-behavior: none; }
 body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; font-family: Bangers, Impact, sans-serif; }
-canvas#game { position: fixed; inset: 0; display: block; }
+canvas#game { position: fixed; inset: 0; display: block; touch-action: none; }
+#touch, #touch * { touch-action: none; -webkit-user-select: none; user-select: none; }
 
 #touch { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
 #touch[hidden] { display: none; }

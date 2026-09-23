@@ -30,6 +30,7 @@
   window.addEventListener('blur', () => { down.clear(); for (const k in touch) touch[k] = false; });
 
   // Touch state is written by the on-screen controls (see main.js).
+  const touchTapped = new Set(); // on-screen buttons pressed since the last frame, so very quick taps count
   const touch = { up: false, down: false, left: false, right: false, L: false, H: false, S: false, X: false, T: false, A: false, start: false };
 
   function blank() { return { up: false, down: false, left: false, right: false, L: false, H: false, S: false, X: false, T: false, A: false, start: false }; }
@@ -58,7 +59,7 @@
     if (slot === 0) {
       readKeys(KEYS.p1, s); readPad(0, s);
       if (humans < 2) { readKeys(KEYS.p2, s); readPad(1, s); }
-      for (const k in touch) if (touch[k]) s[k] = true;
+      for (const k in touch) if (touch[k] || touchTapped.has(k)) s[k] = true;
     } else {
       readKeys(KEYS.p2, s); readPad(1, s);
     }
@@ -109,5 +110,5 @@
     }
   }
 
-  OP.Input = { raw, Pad, touch, blank, BTN, KEYS, lastDevice: 'keyboard', isDown: (c) => down.has(c) || tapped.has(c), endFrame: () => tapped.clear() };
+  OP.Input = { raw, Pad, touch, blank, BTN, KEYS, lastDevice: 'keyboard', isDown: (c) => down.has(c) || tapped.has(c), endFrame: () => { tapped.clear(); touchTapped.clear(); }, tapTouch: (k) => touchTapped.add(k) };
 })(window.OP);
