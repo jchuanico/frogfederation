@@ -162,6 +162,7 @@
     { label: 'HOW TO PLAY', sub: 'Controls and every character\'s move list', fn: () => go(Controls) },
     { label: 'OPTIONS', sub: 'Volume, voices, cut-ins, difficulty, hitboxes', fn: () => go(Options) },
     { label: 'CREDITS', sub: 'Fan-work notice and thanks', fn: () => go(Credits) },
+    { label: 'ALL GAMES', sub: 'Back to the Frog Federation games menu', fn: () => { OP.Audio.stopMusic(); window.location.href = '../games/'; } },
   ];
   const Menu = {
     sel: 0,
@@ -176,7 +177,7 @@
       backdrop(0.5);
       logo(W * 0.5, 110, 0.55);
       frog(W - 150, H - 170, 0.55, T);
-      MENU_ITEMS.forEach((it, i) => button(W / 2 - 180, 200 + i * 66, 360, 54, it.label, i === this.sel, () => { this.sel = i; OP.Audio.sfx('confirm'); it.fn(); }, 'm' + i, it.sub));
+      MENU_ITEMS.forEach((it, i) => button(W / 2 - 180, 202 + i * 58, 360, 48, it.label, i === this.sel, () => { this.sel = i; OP.Audio.sfx('confirm'); it.fn(); }, 'm' + i, it.sub));
       disclaimer();
     },
   };
