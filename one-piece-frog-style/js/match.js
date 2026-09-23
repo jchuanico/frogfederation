@@ -5,6 +5,11 @@
   const { W, H, clamp, lerp, REF_MASS } = OP;
   const Dr = OP.Draw;
   const CAN_BLOCK = new Set(['idle', 'walk', 'crouch', 'guard', 'blockstun', 'air', 'land']);
+  // Camera framing (logical pixels / metres)
+  const CAM_TOP = 128;                    // keep the action below the health bars
+  const CAM_MARGIN_X = 0.6, CAM_MARGIN_TOP = 0.35;
+  const CAM_ZMIN = W / 13, CAM_ZMAX = W / 5.8; // widest ≈13 m view, closest ≈5.8 m
+  const JUGGLE_CEIL = 4.2;                // metres: highest apex a hit can send someone to
   const TAG_LINES = { luffy: 'Leave it to me!', zoro: 'Step aside.', sanji: 'Allow me.', nami: 'My turn!' };
 
   class Team {
@@ -361,8 +366,11 @@
       def.groundBounce = !!props.groundBounce; def.wallBounce = !!props.wallBounce;
       def.vx = dir * props.kb[0] * massK;
       if (airborne) {
-        let vy = props.kb[1] * massK;
+        // light bodies still fly higher, but launches are capped so juggles stay on screen
+        let vy = props.kb[1] * Math.min(massK, 1.12);
         if (def.air && vy >= 0) vy = Math.max(vy, 3.2); // keep juggles alive
+        // juggles can't ladder a body out of the camera: apex (y + v²/2g) is capped
+        if (vy > 0) vy = Math.min(vy, Math.sqrt(2 * OP.G * Math.max(0.3, JUGGLE_CEIL - def.y)));
         def.vy = vy; def.air = true;
         if (def.y <= 0 && vy > 0) def.y = 0.01;
       } else def.vy = 0;
@@ -569,22 +577,45 @@
     }
 
     // ---------- camera ----------
+    // World-space box around everything that matters on screen: heads, hands, feet and
+    // weapon tips of every active fighter (not just their origins).
+    actionBox() {
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+      const add = (p, r = 0) => { x0 = Math.min(x0, p[0] - r); x1 = Math.max(x1, p[0] + r); y0 = Math.min(y0, p[1] - r); y1 = Math.max(y1, p[1] + r); };
+      for (const f of this.fighters) {
+        if (!(f.role === 'point' || f.role === 'assist' || f.state === 'tagin') || f.state === 'tagout' || !f.J || Math.abs(f.x) > 20) continue;
+        const J = f.J, P = J.P;
+        add(f.toWorld(J.head), J.D.headR * 1.6); // hair and hat
+        for (const k of ['haF', 'haB', 'ftF', 'ftB', 'hip']) add(f.toWorld(J[k]), 0.1 * (k[0] === 'h' ? f.fistScale : 1));
+        const tip = (h, deg, len) => { const d = OP.limbDir(deg); return f.toWorld([h[0] + d[0] * len, h[1] + d[1] * len]); };
+        if (f.flags.swordsOut) { add(tip(J.haF, P.swF ?? P.aF2 + 70, 0.85)); add(tip(J.haB, P.swB ?? P.aB2 + 70, 0.85)); }
+        if (P.staff != null && f.def.id === 'nami') add(tip(J.haF, P.staff, 0.62));
+      }
+      if (x0 === Infinity) return null;
+      return { x0, x1, y0: Math.max(0, y0), y1 };
+    }
+
+    // The fight camera that frames the action box: fit width AND height, keep the deck
+    // on its line when there's room, never show past the ship's ends.
+    fightCam() {
+      const box = this.actionBox(), c = this.cam;
+      if (!box) return { x: 0, y: 0, zoom: 175, fit: 175 };
+      const band = c.gy - CAM_TOP;          // usable pixels between the HUD and the deck line
+      const w = box.x1 - box.x0 + CAM_MARGIN_X * 2, h = box.y1 - box.y0 + CAM_MARGIN_TOP;
+      const fit = Math.min(W / w, band / h); // largest zoom that still shows everything
+      const zoom = clamp(fit, CAM_ZMIN, CAM_ZMAX);
+      const vis = band / zoom, mid = (box.y0 + box.y1 + CAM_MARGIN_TOP) / 2;
+      const y = Math.max(box.y0, mid - vis / 2); // deck stays put unless the action is taller than the view
+      const half = W / 2 / zoom;
+      const x = clamp((box.x0 + box.x1) / 2, -OP.STAGE_HALF - 0.6 + half, OP.STAGE_HALF + 0.6 - half);
+      return { x, y, zoom, fit, box };
+    }
+
     updateCamera() {
       const c = this.cam;
-      let tx, ty, tz;
-      const fs = this.fighters.filter((f) => f.role !== 'bench' && f.state !== 'tagout' && Math.abs(f.x) < 20);
-      if (fs.length) {
-        let minX = Infinity, maxX = -Infinity, maxY = 0;
-        for (const f of fs) { if (f.role === 'point' || f.role === 'assist' || f.state === 'tagin') { minX = Math.min(minX, f.x); maxX = Math.max(maxX, f.x); maxY = Math.max(maxY, f.y); } }
-        if (minX === Infinity) { minX = -1; maxX = 1; }
-        const width = maxX - minX + 2.8;
-        tz = clamp(W / width, W / 9.2, W / 5.8);
-        tx = (minX + maxX) / 2;
-        ty = Math.max(0, maxY - 1.7) * 0.85;
-        const half = W / 2 / tz;
-        tx = clamp(tx, -OP.STAGE_HALF - 0.6 + half, OP.STAGE_HALF + 0.6 - half);
-      } else { tx = 0; ty = 0; tz = 175; }
-      if (this.phase === 'intro') { const k = clamp(this.phaseT / 170, 0, 1); tz = lerp(W / 5.6, tz, OP.ease.inOutSine(k)); }
+      const T = this.fightCam();
+      let tx = T.x, ty = T.y, tz = T.zoom;
+      if (this.phase === 'intro') { const k = clamp(this.phaseT / 170, 0, 1); tz = Math.min(T.fit, lerp(W / 5.2, tz, OP.ease.inOutSine(k))); }
       // KO: slow-motion push-in on the loser's face
       if (this.koCam) {
         const f = this.koCam.f; this.koCam.t++;
@@ -592,20 +623,43 @@
         const k = clamp(this.koCam.t / 40, 0, 1) * (this.koCam.t > 150 ? clamp(1 - (this.koCam.t - 150) / 40, 0, 1) : 1);
         const z = tz * 2.2;
         tx = lerp(tx, h[0], k); ty = lerp(ty, Math.max(0, h[1] - (c.gy - H * 0.5) / z), k); tz = lerp(tz, z, k);
+        if (k > 0) { c.x = lerp(c.x, tx, 0.2); c.y = lerp(c.y, ty, 0.2); c.zoom = lerp(c.zoom, tz, 0.2); this.applyShake(); return; }
       }
       if (this.cutin) {
+        // Fly from where the camera was into the face, then back out landing exactly on the
+        // fight camera on the last frozen frame — nothing is left zoomed in when play resumes.
         const ci = this.cutin, f = ci.f;
         const h = f.toWorld(f.J.head);
         const zin = ci.hyper ? 1.0 : 0.62; // fraction of screen height the face fills
         const z = (H * zin) / (f.J.D.headR * 2 * 2.1);
         const inT = ci.hyper ? 14 : 8, outT = ci.hyper ? 12 : 7;
-        let k = ci.t < inT ? OP.ease.outCubic(ci.t / inT) : ci.t > ci.dur - outT ? 1 - OP.ease.inCubic((ci.t - (ci.dur - outT)) / outT) : 1;
-        const fx = ci.hyper ? h[0] + f.facing * f.J.D.headR * 0.6 : h[0] + f.facing * f.J.D.headR * 0.9;
+        const out = ci.t > ci.dur - outT;
+        const k = !out ? OP.ease.outCubic(clamp(ci.t / inT, 0, 1)) : 1 - OP.ease.inCubic(clamp((ci.t - (ci.dur - outT)) / (outT - 1), 0, 1));
+        const base = out ? { x: tx, y: ty, zoom: tz } : ci.from;
+        const fx = h[0] + f.facing * f.J.D.headR * (ci.hyper ? 0.6 : 0.9);
         const fy = h[1] - (c.gy - H * (ci.hyper ? 0.52 : 0.46)) / z;
-        c.x = lerp(ci.from.x, fx, k); c.y = lerp(ci.from.y, fy, k); c.zoom = Math.exp(lerp(Math.log(ci.from.zoom), Math.log(z), k));
-      } else {
-        c.x = lerp(c.x, tx, 0.14); c.y = lerp(c.y, ty, 0.12); c.zoom = lerp(c.zoom, tz, 0.08);
+        c.x = lerp(base.x, fx, k); c.y = lerp(base.y, fy, k); c.zoom = Math.exp(lerp(Math.log(base.zoom), Math.log(z), k));
+        this.applyShake();
+        return;
       }
+      // zoom out quickly so action never outruns the camera; zoom back in gently
+      c.zoom = lerp(c.zoom, tz, tz < c.zoom ? 0.3 : 0.07);
+      c.x = lerp(c.x, tx, 0.2); c.y = lerp(c.y, ty, ty > c.y ? 0.25 : 0.15);
+      // hard guarantee: whatever the smoothing did, the whole action box stays in view
+      if (T.box) {
+        c.zoom = Math.min(c.zoom, Math.max(T.fit, CAM_ZMIN));
+        const half = W / 2 / c.zoom, band = (c.gy - CAM_TOP) / c.zoom;
+        const lo = T.box.x0 - CAM_MARGIN_X * 0.5, hi = T.box.x1 + CAM_MARGIN_X * 0.5;
+        if (lo < c.x - half) c.x = lo + half;
+        if (hi > c.x + half) c.x = hi - half;
+        if (T.box.y1 + CAM_MARGIN_TOP * 0.5 > c.y + band) c.y = T.box.y1 + CAM_MARGIN_TOP * 0.5 - band;
+        if (T.box.y0 < c.y) c.y = T.box.y0;
+      }
+      this.applyShake();
+    }
+
+    applyShake() {
+      const c = this.cam;
       if (this.shakeMag > 0.2) { c.sx = (Math.random() - 0.5) * this.shakeMag * 2; c.sy = (Math.random() - 0.5) * this.shakeMag * 2; this.shakeMag *= 0.86; }
       else { c.sx = c.sy = 0; this.shakeMag = 0; }
     }
