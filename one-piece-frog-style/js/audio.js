@@ -81,7 +81,9 @@
     node.connect(g);
     env(g, t, o.a ?? 0.004, o.g ?? 0.3, dur, r);
     g.connect(o.dest || sfxBus);
-    if (o.rev) { const s = ctx.createGain(); s.gain.value = o.rev; g.connect(s); s.connect(revSend); }
+    let send = null;
+    if (o.rev) { send = ctx.createGain(); send.gain.value = o.rev; g.connect(send); send.connect(revSend); }
+    osc.onended = () => { for (const n of [osc, g, node, send]) if (n) try { n.disconnect(); } catch (e) { /* gone */ } };
     osc.start(t); osc.stop(t + dur + r + 0.05);
   }
 
@@ -95,7 +97,9 @@
     src.connect(f); f.connect(g);
     env(g, t, o.a ?? 0.002, o.g ?? 0.3, dur, r);
     g.connect(o.dest || sfxBus);
-    if (o.rev) { const s = ctx.createGain(); s.gain.value = o.rev; g.connect(s); s.connect(revSend); }
+    let send = null;
+    if (o.rev) { send = ctx.createGain(); send.gain.value = o.rev; g.connect(send); send.connect(revSend); }
+    src.onended = () => { for (const n of [src, f, g, send]) if (n) try { n.disconnect(); } catch (e) { /* gone */ } };
     src.start(t, Math.random() * 1.5); src.stop(t + dur + r + 0.05);
   }
 
@@ -256,16 +260,86 @@
   }
 
   const compiled = {};
-  let cur = null, curName = null, step = 0, nextT = 0, timer = null, tempoScale = 1;
+  const getSong = (name) => (compiled[name] = compiled[name] || compile(SONGS[name]));
+
+  // ---------- pre-rendered music ----------
+  // Each song is rendered once into an AudioBuffer with an OfflineAudioContext (same instrument
+  // code), then looped by the audio thread. Unlike note-by-note scheduling from a JS timer, this
+  // can't stutter when the main thread is busy drawing, and creates no nodes while playing.
+  const rendered = {}, rendering = {};
+  const RENDER_RATE = 32000;
+  function renderSong(name) {
+    if (rendered[name] || rendering[name]) return rendering[name];
+    const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (!OAC || !ctx) return null;
+    const song = getSong(name), sd = 60 / song.bpm / 4, len = song.length * sd, tail = 2.5;
+    const loopN = Math.round(len * RENDER_RATE), totalN = Math.ceil((len + tail) * RENDER_RATE);
+    let off;
+    try { off = new OAC(2, totalN, RENDER_RATE); } catch (e) { return null; }
+    const bus = off.createGain(); bus.connect(off.destination);
+    const rev = off.createConvolver(); rev.buffer = makeIR(off); const rs = off.createGain(); rs.gain.value = 0.22; rs.connect(rev); rev.connect(off.destination);
+    const saved = [ctx, musicBus, revSend];
+    ctx = off; musicBus = bus; revSend = rs;   // point the instruments at the offline graph
+    try { for (let st = 0; st < song.length; st++) { const evs = song.events[st]; if (evs) for (const e of evs) e(0.01 + st * sd, sd); } }
+    finally { [ctx, musicBus, revSend] = saved; }
+    const done = (buf) => {
+      let out = buf;
+      if (song.loop) { // fold the ringing tail back onto the start so the loop is seamless
+        out = ctx.createBuffer(buf.numberOfChannels, loopN, RENDER_RATE);
+        for (let c = 0; c < buf.numberOfChannels; c++) {
+          const src = buf.getChannelData(c), dst = out.getChannelData(c);
+          dst.set(src.subarray(0, loopN));
+          for (let i = 0; i < totalN - loopN && i < loopN; i++) dst[i] += src[loopN + i];
+        }
+      }
+      rendered[name] = out; delete rendering[name];
+      if (curName === name && !bufSrc) switchToBuffer(name); // swap in without restarting the song
+      return out;
+    };
+    const p = new Promise((res) => { off.oncomplete = (e) => res(e.renderedBuffer); const r = off.startRendering(); if (r && r.then) r.then(res, () => res(null)); });
+    rendering[name] = p.then((b) => (b ? done(b) : null));
+    return rendering[name];
+  }
+  function makeIR(c) {
+    const n = Math.floor(c.sampleRate * 2.2), ir = c.createBuffer(2, n, c.sampleRate);
+    for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3.2); }
+    return ir;
+  }
+  // Render every song in the background, the one that's playing first.
+  function prerenderAll() {
+    const order = [curName, 'title', 'select', 'battle', 'victory'].filter((n, i, a) => n && SONGS[n] && a.indexOf(n) === i);
+    order.reduce((chain, n) => chain.then(() => renderSong(n)), Promise.resolve());
+  }
+
+  let cur = null, curName = null, step = 0, nextT = 0, timer = null, tempoScale = 1, bufSrc = null, songStart = 0;
 
   function playMusic(name) {
     init(); if (!ctx) return;
     if (curName === name) return;
     stopMusic();
-    compiled[name] = compiled[name] || compile(SONGS[name]);
-    cur = compiled[name]; curName = name; step = 0; nextT = ctx.currentTime + 0.08; tempoScale = 1;
+    curName = name; tempoScale = 1;
+    if (rendered[name]) { startBuffer(name, 0); return; }
+    // not rendered yet: play live for now, switch to the rendered loop when it's ready
+    cur = getSong(name); step = 0; nextT = ctx.currentTime + 0.08; songStart = nextT;
     timer = setInterval(schedule, 25);
     schedule();
+    renderSong(name);
+  }
+  function startBuffer(name, offset) {
+    const buf = rendered[name];
+    const src = ctx.createBufferSource(); src.buffer = buf; src.loop = getSong(name).loop; src.playbackRate.value = tempoScale;
+    src.connect(musicBus);
+    src.onended = () => { try { src.disconnect(); } catch (e) { /* gone */ } if (bufSrc === src) { bufSrc = null; if (!src.loop && curName === name) curName = name + ':done'; } };
+    src.start(ctx.currentTime + 0.02, offset % buf.duration);
+    bufSrc = src;
+  }
+  function switchToBuffer(name) {
+    const song = getSong(name), len = song.length * 60 / song.bpm / 4;
+    const pos = ctx.currentTime - songStart;
+    if (!song.loop && pos >= len) return;
+    if (timer) clearInterval(timer);
+    timer = null; cur = null;
+    startBuffer(name, song.loop ? ((pos % len) + len) % len : pos);
   }
   function schedule() {
     if (!cur) return;
@@ -275,20 +349,22 @@
       if (evs) for (const e of evs) e(nextT, sd);
       nextT += sd; step++;
       if (step >= cur.length) {
-        if (cur.loop) step = 0; else { const n = curName; clearInterval(timer); timer = null; cur = null; curName = n + ':done'; return; }
+        if (cur.loop) { step = 0; songStart = nextT; } else { const n = curName; clearInterval(timer); timer = null; cur = null; curName = n + ':done'; return; }
       }
     }
   }
   function stopMusic() {
     if (timer) clearInterval(timer);
     timer = null; cur = null; curName = null;
+    if (bufSrc) { const s0 = bufSrc; bufSrc = null; try { s0.stop(ctx.currentTime + 0.08); } catch (e) { /* ended */ } }
     if (ctx) { // quick fade so held notes don't hang
       const g = musicBus.gain; const now = ctx.currentTime;
       g.cancelScheduledValues(now); g.setValueAtTime(g.value, now); g.linearRampToValueAtTime(0, now + 0.08);
       g.linearRampToValueAtTime(OP.settings.music * 0.55, now + 0.35);
     }
   }
-  function setTempo(s) { tempoScale = s; }
+  function setTempo(s) { tempoScale = s; if (bufSrc) bufSrc.playbackRate.setTargetAtTime(s, ctx.currentTime, 0.3); }
+  const musicMode = () => (bufSrc ? 'buffer' : timer ? 'live' : 'none');
 
   // ---------- sound effects ----------
   const SFX = {
@@ -428,7 +504,7 @@
   // Announcer lines ("Ready?", "Fight!", "K.O.!", ...)
   function announce(key) { return voice('announcer', key, { gain: 1.1, reverb: 0.35 }); }
   const origInit = init;
-  init = function () { const first = !ctx; origInit(); if (first && ctx) decodeAll(); };
+  init = function () { const first = !ctx; origInit(); if (first && ctx) { decodeAll(); setTimeout(prerenderAll, 400); } };
 
-  OP.Audio = { init: () => init(), playMusic, stopMusic, setTempo, sfx, voice, announce, loadVoices, applyVolumes, get ready() { return !!ctx; } };
+  OP.Audio = { init: () => init(), playMusic, stopMusic, setTempo, musicMode, sfx, voice, announce, loadVoices, applyVolumes, get ready() { return !!ctx; } };
 })(window.OP);
