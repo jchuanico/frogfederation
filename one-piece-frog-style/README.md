@@ -5,8 +5,9 @@ X-Men vs Street Fighter, starring the Straw Hat crew. It's hosted in the Frog Fe
 
 > ONE PIECE and all related characters, names and techniques belong to Eiichiro Oda /
 > Shueisha and Toei Animation. This project is not affiliated with or endorsed by them,
-> and nobody makes money from it. All art is drawn in code, and all music and sound
-> effects are original synthesized tributes. No official assets are included.
+> and nobody makes money from it. All art is drawn in code, music and sound effects are
+> original synthesized tributes, and voices are generated with an open TTS model.
+> No official assets or voice recordings are included.
 
 Play it at `https://jchuanico.github.io/frogfederation/one-piece-frog-style/`, or serve
 the repo root locally (for example `npx http-server .`) and open `/one-piece-frog-style/`.
@@ -22,8 +23,13 @@ Opening `index.html` straight from disk also works, because it uses plain script
 | Usopp | Punches up close, Kabuto (staff slingshot) whacks and shots | Lead Star · Exploding Star · Sky Shot · Tabasco Star (low) | Firebird Star (heat-seeking) |
 | Chopper | Tiny Brain Point; Rumble Ball forms | Heavy Point (grow, +5%) / Heavy Gong · Kokutei Roseo · Horn Point · Guard Point (armour) | Monster Point (giant, +25%, super armour). Two hits taken shrink him back |
 
-Special-move call-outs are spoken in Japanese when your device has a Japanese voice
-(most phones and computers do), and in English otherwise.
+## Voices
+Call-outs, quotes, attack shouts, pain cries and the announcer are pre-recorded clips in
+`voices/`. They were generated with the open-source **Kokoro-82M** neural TTS model (Apache-2.0),
+using blended voice styles to give each character a distinct voice, then trimmed, driven and
+loudness-matched. To change a line, edit it in `js/characters.js` (or the shouts in
+`tools/make_voices.py`) and regenerate: `python tools/make_voices.py --model <dir>`. Setup steps
+are in the script header.
 
 ## Controls
 | | Keyboard P1 | Keyboard P2 | Gamepad |

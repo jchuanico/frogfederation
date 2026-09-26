@@ -51,7 +51,8 @@
       return s === 'idle' || s === 'walk' || s === 'crouch' || s === 'air' || s === 'guard' || (s === 'dash' && this.st > 5) || (s === 'land' && this.st > 2);
     }
 
-    say(en, jp) { const v = this.def.voice; OP.Audio.speak({ en, jp, pitch: v.pitch, rate: v.rate, gender: v.gender }); }
+    // Play one of this character's recorded voice lines (quote, win, tag, sN…X, kiai1/2, hurt1/2, ko).
+    say(key, o) { return OP.Audio.voice(this.def.id, key, o); }
     setExpr(e, t) { this.expr = e; this.exprT = t || 0; }
 
     // ---------- moves ----------
@@ -71,6 +72,7 @@
       if (!this.air) { this.vx = 0; }
       this.setExpr(mv.expr || 'determined');
       if (mv.kind !== 'normal') m.onSpecial(this, mv);
+      else if ((key === 'H' || key === 'cH' || key === 'jH') && Math.random() < 0.4) this.say(Math.random() < 0.5 ? 'kiai1' : 'kiai2'); // effort shout
       return true;
     }
 

@@ -35,6 +35,7 @@
     constructor(cfg) {
       this.mode = cfg.mode; this.level = cfg.level ?? OP.settings.difficulty; this.dummy = cfg.dummy || { guard: 'none' };
       this.teams = cfg.teams.map((t, i) => new Team(t, i, this));
+      OP.Audio.loadVoices(['announcer'].concat(...cfg.teams.map((t) => t.chars)));
       this.humans = cfg.teams.filter((t) => t.ctrl !== 'cpu').length;
       this.proj = []; this.parts = []; this.texts = [];
       this.cam = { x: 0, y: 0, zoom: 175, gy: H * 0.86, sx: 0, sy: 0 };
@@ -89,11 +90,11 @@
     flow() {
       const [a, b] = this.teams;
       if (this.phase === 'intro') {
-        if (this.phaseT === 10) { a.point.say(a.point.def.quote, a.point.def.quoteJp); }
-        if (this.phaseT === 60) { b.point.say(b.point.def.quote, b.point.def.quoteJp); }
-        if (this.phaseT === 125) { this.banner('READY?', '#ffffff', 50, 90); OP.Audio.say('Ready?', { pitch: 0.6, rate: 0.9 }); }
+        if (this.phaseT === 10) { a.point.say('quote'); }
+        if (this.phaseT === 60) { b.point.say('quote'); }
+        if (this.phaseT === 125) { this.banner('READY?', '#ffffff', 50, 90); OP.Audio.announce('ready'); }
         if (this.phaseT === 180) {
-          this.banner('FIGHT!', '#ffe14d', 55, 140); OP.Audio.sfx('don'); OP.Audio.say('Fight!', { pitch: 0.6, rate: 1 });
+          this.banner('FIGHT!', '#ffe14d', 55, 140); OP.Audio.sfx('don'); OP.Audio.announce('fight');
           for (const t of this.teams) { t.point.state = 'idle'; t.point.st = 0; }
           this.phase = 'fight'; this.phaseT = 0;
         }
@@ -103,7 +104,7 @@
         if (this.timer > 0) this.timer--;
         if (this.timer === 20 * 60) OP.Audio.setTempo(1.1);
         if (this.timer === 0) {
-          this.phase = 'timeover'; this.phaseT = 0; this.banner('TIME OVER', '#ff8a3d', 120, 100); OP.Audio.say('Time over!', { pitch: 0.6 });
+          this.phase = 'timeover'; this.phaseT = 0; this.banner('TIME OVER', '#ff8a3d', 120, 100); OP.Audio.announce('timeover');
           const fa = a.healthFrac, fb = b.healthFrac;
           this.winner = fa > fb ? a : fb > fa ? b : null;
         }
@@ -114,10 +115,10 @@
         if (this.winner) {
           const w = this.winner.point.alive ? this.winner.point : this.winner.members.find((f) => f.alive);
           if (w && !w.onScreen) { this.bringIn(this.winner, w); }
-          if (w) { w.state = 'win'; w.st = 0; w.move = null; w.setExpr('win'); w.say(w.def.winLine, w.def.winJp); }
+          if (w) { w.state = 'win'; w.st = 0; w.move = null; w.setExpr('win'); w.say('win'); }
           const names = this.winner.members.map((f) => f.def.short).join(' & ');
           this.banner(names + ' WIN!', this.winner.side === 0 ? '#ffd23d' : '#7fd6ff', 400, 70);
-        } else this.banner('DRAW GAME', '#ffffff', 400, 90);
+        } else { this.banner('DRAW GAME', '#ffffff', 400, 90); OP.Audio.announce('draw'); }
       }
       if (this.phase === 'end' && this.phaseT > 210) this.done = true;
     }
@@ -164,7 +165,7 @@
       t.pi = 1 - t.pi;
       this.bringIn(t, inn, out.x - out.facing * 0.3, out.facing);
       t.tagCD = 150;
-      OP.Audio.sfx('tag'); inn.say(inn.def.tagLine, inn.def.tagJp);
+      OP.Audio.sfx('tag'); inn.say('tag');
     }
 
     bringIn(t, inn, x, facing) {
@@ -190,7 +191,7 @@
       const x = this.clampX(out.x - out.facing * 0.2);
       inn.reset(x, opp.x > x ? 1 : -1);
       t.pi = 1 - t.pi; inn.role = 'point';
-      this.banner('CREW COMBO!', '#ff5ad0', 60, 80);
+      this.banner('CREW COMBO!', '#ff5ad0', 60, 80); OP.Audio.announce('crew');
       inn.startMove('X', this);
     }
 
@@ -225,7 +226,7 @@
           if (q.role !== 'bench') { t.pendingEntry = 10; return; }
           dead.role = 'bench'; dead.x = -99;
           this.bringIn(t, q);
-          q.say(q.def.tagLine, q.def.tagJp);
+          q.say('tag');
         }
       }
       // dead assist goes home
@@ -396,6 +397,7 @@
       if (props.knockdown && !airborne && !jumpIn) { def.vy = 3; def.air = true; def.y = 0.01; }
       def.flashT = 6; def.setExpr('hurt');
       def.fistScale = 1;
+      if (def.hp > 0 && (props.dmg >= 70 || Math.random() < 0.25) && !(def.lastCry > this.frame - 40)) { def.lastCry = this.frame; def.say(Math.random() < 0.5 ? 'hurt1' : 'hurt2'); } // pain cry
 
       this.hitstop = props.hitstop + (counterHit ? 4 : 0);
       if (props.shake) this.shake(props.shake);
@@ -420,6 +422,7 @@
 
     onKO(f, dir) {
       f.hp = 0; f.red = 0; f.state = 'ko'; f.move = null; f.air = true; f.y = Math.max(f.y, 0.01);
+      f.say('ko');
       f.vy = Math.max(f.vy, 6); f.vx = dir * 3.5 * (REF_MASS / f.def.mass); f.setExpr('ko');
       const t = f.team;
       const lastStanding = !t.members.some((m) => m !== f && m.alive);
@@ -427,7 +430,7 @@
       if (lastStanding) {
         this.slow = 100; this.koCam = { f, t: 0 }; this.phase = 'ko'; this.phaseT = 0;
         this.winner = this.enemyTeam(f);
-        this.banner('K.O.', '#ff3b3b', 150, 170); OP.Audio.say('K.O.!', { pitch: 0.5, rate: 0.8 });
+        this.banner('K.O.', '#ff3b3b', 150, 170); OP.Audio.announce('ko');
         OP.Audio.stopMusic();
       } else {
         this.banner('K.O.', '#ff3b3b', 70, 110);
@@ -450,7 +453,7 @@
 
     // ---------- specials & cut-ins ----------
     onSpecial(f, mv) {
-      if (mv.shout) f.say(mv.shout, mv.jp);
+      f.say(mv.key);
       const hyper = mv.kind === 'hyper';
       OP.Audio.sfx(hyper ? 'flash' : 'special');
       this.ring(f.x, f.y + 1, hyper ? '#ffe14d' : '#ffffff');

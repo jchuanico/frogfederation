@@ -417,10 +417,22 @@ test('Chopper: Heavy Point grows (bigger hitbox, +5%), Monster Point (+25%, armo
   check(env.A.def.form === 'brain', 'second hit should shrink Monster Point back');
 });
 
-test('call-outs: Japanese lines for every special/hyper; speech is safe without a speech engine', () => {
-  for (const c of OP.Roster) for (const k of ['sN', 'sF', 'sU', 'sD', 'X']) check(/[぀-ヿ一-龯]/.test(c.moves[k].jp || ''), `${c.id}.${k} has no Japanese call-out`);
+test('voices: every line has a recorded clip; playback is safe without audio', () => {
+  const vdir = path.join(__dirname, '..', 'voices');
+  const man = JSON.parse(fs.readFileSync(path.join(vdir, 'manifest.json'), 'utf8'));
+  const need = (sp, key) => {
+    check(man[sp] && man[sp][key] > 0.2, `${sp}/${key} missing from voices/manifest.json`);
+    const f = path.join(vdir, sp, key + '.mp3');
+    check(fs.existsSync(f) && fs.statSync(f).size > 2000, `${sp}/${key}.mp3 missing or empty`);
+  };
+  for (const c of OP.Roster) {
+    for (const k of ['quote', 'win', 'tag', 'kiai1', 'kiai2', 'hurt1', 'hurt2', 'ko']) need(c.id, k);
+    for (const [k, mv] of Object.entries(c.moves)) if (mv.jp) need(c.id, k);
+    for (const k of ['sN', 'sF', 'sU', 'sD', 'X']) check(/[\u3040-\u30ff\u4e00-\u9faf]/.test(c.moves[k].jp || ''), `${c.id}.${k} has no Japanese call-out`);
+  }
+  for (const k of ['ready', 'fight', 'ko', 'timeover', 'draw', 'crew']) need('announcer', k);
   OP.settings.voice = true;
-  try { OP.Audio.speak({ jp: 'ゴムゴムの…ピストル！', en: 'Pistol' }); OP.Audio.say('Fight!'); } finally { OP.settings.voice = false; }
+  try { OP.Audio.loadVoices(['luffy']); OP.Audio.voice('luffy', 'sN'); OP.Audio.announce('fight'); } finally { OP.settings.voice = false; }
 });
 
 // =====================================================================

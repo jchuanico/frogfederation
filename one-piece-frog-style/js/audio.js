@@ -370,51 +370,65 @@
     const fn = SFX[name]; if (fn) try { fn(); } catch (e) { /* audio is best-effort */ }
   }
 
-  // ---------- spoken callouts ----------
-  // Browser speech voices. Character lines prefer a Japanese voice speaking the Japanese
-  // move name (anime-style), picking the most natural-sounding voice the device offers.
-  let voicesEn = [], voicesJa = [];
-  const MALE = /otoya|hattori|ichiro|keita|daichi|naoki|takumi|kenji|male|男/i;
-  const quality = (v) => (/natural|neural|premium|enhanced|siri|online/i.test(v.name) ? 4 : 0) + (/google/i.test(v.name) ? 2 : 0) + (v.localService ? 0 : 1);
-  function loadVoices() {
+  // ---------- voice clips ----------
+  // Pre-rendered voice lines (voices/<speaker>/<key>.mp3, made with tools/make_voices.py from
+  // an open neural TTS model). Clips load per character when a match needs them; missing or
+  // not-yet-loaded clips are simply skipped — no robotic browser speech.
+  const bank = {};      // speaker -> key -> { raw: Promise<ArrayBuffer>, buf: AudioBuffer }
+  let manifest = null;
+  const playing = {};   // speaker -> current source (a speaker never talks over themself)
+  function loadManifest() {
+    if (manifest || typeof fetch !== 'function') return manifest;
+    manifest = fetch('voices/manifest.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+    return manifest;
+  }
+  function loadVoices(speakers) {
+    const m = loadManifest();
+    if (!m) return;
+    m.then((man) => {
+      for (const sp of speakers) {
+        if (!man[sp] || bank[sp]) continue;
+        bank[sp] = {};
+        for (const key of Object.keys(man[sp])) {
+          bank[sp][key] = { raw: fetch(`voices/${sp}/${key}.mp3`).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null), buf: null, decoding: null };
+        }
+      }
+      if (ctx) decodeAll();
+    });
+  }
+  function decodeClip(c) {
+    if (c.buf || c.decoding || !ctx) return c.decoding;
+    c.decoding = c.raw.then((raw) => (raw ? new Promise((res) => ctx.decodeAudioData(raw, res, () => res(null))) : null)).then((b) => { c.buf = b; return b; });
+    return c.decoding;
+  }
+  function decodeAll() { for (const sp in bank) for (const k in bank[sp]) decodeClip(bank[sp][k]); }
+  function voice(speaker, key, o = {}) {
+    if (!OP.settings.voice || !ctx) return false;
+    const c = bank[speaker] && bank[speaker][key];
+    if (!c) return false;
+    if (!c.buf) { // still decoding: play it if it's ready within 0.7 s, otherwise drop it
+      const t0 = Date.now(), p = decodeClip(c);
+      if (p) p.then((b) => { if (b && Date.now() - t0 < 700) voice(speaker, key, o); });
+      return false;
+    }
     try {
-      const all = speechSynthesis.getVoices();
-      voicesJa = all.filter((v) => /^ja/i.test(v.lang)).sort((a, b) => quality(b) - quality(a));
-      voicesEn = all.filter((v) => /^en/i.test(v.lang)).sort((a, b) => quality(b) - quality(a));
-    } catch (e) { voicesJa = voicesEn = []; }
+      if (playing[speaker] && !o.overlap) { try { playing[speaker].stop(); } catch (e) { /* already ended */ } }
+      const src = ctx.createBufferSource(), g = ctx.createGain(), hp = ctx.createBiquadFilter();
+      src.buffer = c.buf; src.playbackRate.value = o.rate || 1;
+      hp.type = 'highpass'; hp.frequency.value = 90; // keep voices clear of the music's bass
+      g.gain.value = (o.gain ?? 1) * 1.15;
+      src.connect(hp); hp.connect(g); g.connect(sfxBus);
+      const send = ctx.createGain(); send.gain.value = o.reverb ?? 0.18; g.connect(send); send.connect(revSend);
+      src.start();
+      playing[speaker] = src;
+      src.onended = () => { if (playing[speaker] === src) playing[speaker] = null; };
+      return true;
+    } catch (e) { return false; }
   }
-  if ('speechSynthesis' in window) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
-  function pickVoice(list, gender) {
-    if (!list.length) return null;
-    const want = list.filter((v) => (gender === 'm') === MALE.test(v.name));
-    return (want.length ? want : list)[0];
-  }
-  // o: { jp, en, pitch, rate, gender, announcer }
-  function speak(o) {
-    if (!OP.settings.voice || !('speechSynthesis' in window)) return;
-    try {
-      speechSynthesis.cancel();
-      const useJa = o.jp && voicesJa.length;
-      const text = useJa ? o.jp : o.en;
-      if (!text) return;
-      const voice = pickVoice(useJa ? voicesJa : voicesEn, o.gender);
-      // Deliver "technique name… FINISHER!" in two beats: a quicker lead-in, then the
-      // punchline slower, louder and higher — closer to an anime shout than a flat read.
-      const parts = text.split(/…|\.\.\./).map((t) => t.trim()).filter(Boolean);
-      parts.forEach((part, i) => {
-        const last = i === parts.length - 1 && parts.length > 1;
-        const u = new SpeechSynthesisUtterance(part);
-        if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = useJa ? 'ja-JP' : 'en-US';
-        u.pitch = Math.min(2, (o.pitch ?? 1) * (last ? 1.12 : 1));
-        u.rate = (o.rate ?? 1.05) * (last ? 0.9 : 1.08);
-        u.volume = Math.min(1, OP.settings.sfx + 0.2);
-        speechSynthesis.speak(u);
-      });
-    } catch (e) { /* speech is best-effort */ }
-  }
-  // Announcer / legacy calls: plain English line.
-  function say(text, o = {}) { speak({ en: text, pitch: o.pitch, rate: o.rate, gender: 'm' }); }
-  const hasJapaneseVoice = () => voicesJa.length > 0;
+  // Announcer lines ("Ready?", "Fight!", "K.O.!", ...)
+  function announce(key) { return voice('announcer', key, { gain: 1.1, reverb: 0.35 }); }
+  const origInit = init;
+  init = function () { const first = !ctx; origInit(); if (first && ctx) decodeAll(); };
 
-  OP.Audio = { init, playMusic, stopMusic, setTempo, sfx, say, speak, hasJapaneseVoice, applyVolumes, get ready() { return !!ctx; } };
+  OP.Audio = { init: () => init(), playMusic, stopMusic, setTempo, sfx, voice, announce, loadVoices, applyVolumes, get ready() { return !!ctx; } };
 })(window.OP);

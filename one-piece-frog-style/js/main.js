@@ -213,6 +213,7 @@
       this.t = 0; this.cur = [0, 3]; this.picks = [[], []]; this.pads = [new OP.Input.Pad(), new OP.Input.Pad()]; this.out = 0;
       this.ctrl = [this.mode === 'versus' ? 'p1' : 'p1', this.mode === 'versus' ? 'p2' : 'cpu'];
       OP.Audio.playMusic('select');
+      OP.Audio.loadVoices(['announcer'].concat(OP.Roster.map((c) => c.id)));
     },
     humanSides() { return this.mode === 'versus' ? [0, 1] : [0]; },
     update(n) {
@@ -245,7 +246,7 @@
     pick(side, i) {
       if (this.picks[side].includes(i)) { OP.Audio.sfx('back'); return; }
       this.picks[side].push(i); OP.Audio.sfx('confirm');
-      const c = OP.Roster[i]; OP.Audio.speak({ en: c.short, jp: c.quoteJp, pitch: c.voice.pitch, rate: c.voice.rate, gender: c.voice.gender });
+      const c = OP.Roster[i]; OP.Audio.voice(c.id, 'quote');
     },
     launch() {
       const ids = this.picks.map((p) => p.map((i) => OP.Roster[i].id));
@@ -513,8 +514,9 @@
         'Eiichiro Oda / Shueisha and Toei Animation. This project is not affiliated with,',
         'sponsored by, or endorsed by them, and nobody makes any money from it.',
         '',
-        'All art is drawn live in code and all music and sound effects are original',
-        'synthesized tributes — no official artwork, audio or recordings are included.',
+        'All art is drawn live in code; music and sound effects are original synthesized',
+        'tributes, and voices were generated with the open Kokoro-82M TTS model (Apache-2.0).',
+        'No official artwork, audio or voice recordings are included.',
         '',
         'Please support the official release: read the manga and watch the anime.',
         '',
