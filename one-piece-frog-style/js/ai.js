@@ -3,18 +3,18 @@
 'use strict';
 (function (OP) {
   const LEVELS = [
-    { react: 24, block: 0.25, aggro: 0.35, anti: 0.15, confirm: 0.4, hyper: 0.2, think: 30 },
-    { react: 14, block: 0.55, aggro: 0.55, anti: 0.4, confirm: 0.75, hyper: 0.6, think: 20 },
-    { react: 8, block: 0.85, aggro: 0.7, anti: 0.7, confirm: 0.95, hyper: 0.95, think: 12 },
+    { react: 24, block: 0.25, aggro: 0.35, anti: 0.15, confirm: 0.4, hyper: 0.2, think: 30, tech: 0.15 },
+    { react: 14, block: 0.55, aggro: 0.55, anti: 0.4, confirm: 0.75, hyper: 0.6, think: 20, tech: 0.45 },
+    { react: 8, block: 0.85, aggro: 0.7, anti: 0.7, confirm: 0.95, hyper: 0.95, think: 12, tech: 0.8 },
   ];
   // Which special each character likes at each range.
   const PLAN = {
-    luffy: { far: ['sN', 'approach'], mid: ['sN', 'H', 'sD', 'jumpin'], close: ['comboA', 'comboB', 'comboC'], anti: 'sU' },
-    zoro: { far: ['sN', 'sN', 'approach'], mid: ['sF', 'H', 'jumpin'], close: ['comboA', 'comboB', 'counter'], anti: 'sU' },
-    sanji: { far: ['approach', 'dash'], mid: ['sF', 'H', 'jumpin', 'sN'], close: ['comboA', 'comboB', 'comboC'], anti: 'sD' },
-    nami: { far: ['sN', 'sF', 'sN'], mid: ['sF', 'H', 'sN'], close: ['comboA', 'teleport', 'comboB'], anti: 'sU' },
-    usopp: { far: ['sN', 'sF', 'sN', 'sD'], mid: ['sN', 'H', 'sD', 'jumpin'], close: ['comboA', 'comboB', 'comboC'], anti: 'sU' },
-    chopper: { far: ['sN', 'approach', 'dash'], mid: ['sF', 'H', 'jumpin', 'sN'], close: ['comboA', 'comboB', 'comboC'], anti: 'sU' },
+    luffy: { far: ['sN', 'approach'], mid: ['sN', 'H', 'sD', 'jumpin'], close: ['comboA', 'comboB', 'comboC', 'throw'], anti: 'sU' },
+    zoro: { far: ['sN', 'sN', 'approach'], mid: ['sF', 'H', 'jumpin'], close: ['comboA', 'comboB', 'counter', 'throw'], anti: 'sU' },
+    sanji: { far: ['approach', 'dash'], mid: ['sF', 'H', 'jumpin', 'sN'], close: ['comboA', 'comboB', 'comboC', 'throw'], anti: 'sD' },
+    nami: { far: ['sN', 'sF', 'sN'], mid: ['sF', 'H', 'sN'], close: ['comboA', 'teleport', 'comboB', 'throw'], anti: 'sU' },
+    usopp: { far: ['sN', 'sF', 'sN', 'sD'], mid: ['sN', 'H', 'sD', 'jumpin'], close: ['comboA', 'comboB', 'comboC', 'throw'], anti: 'sU' },
+    chopper: { far: ['sN', 'approach', 'dash'], mid: ['sF', 'H', 'jumpin', 'sN'], close: ['comboA', 'comboB', 'comboC', 'throw'], anti: 'sU' },
   };
 
   class AI {
@@ -32,6 +32,14 @@
       const fwdKey = dx >= 0 ? 'right' : 'left', backKey = dx >= 0 ? 'left' : 'right';
 
       if (this.dummy) return this.dummyThink(m, me, opp, out, fwdKey, backKey);
+
+      // being thrown: maybe break it with H inside the tech window
+      if (me.state === 'thrown') {
+        if (me.throwT === 1) this.techAt = Math.random() < this.L.tech ? 2 + ((Math.random() * this.L.react * 0.45) | 0) : -1;
+        if (me.throwT === this.techAt) out.H = true;
+        this.seq = [];
+        return out;
+      }
 
       // 1) keep executing a planned sequence
       if (this.seq.length) {
@@ -126,6 +134,7 @@
         case 'sF': this.push([{ b: 'S', d: 'fwd', w: 34 }]); break;
         case 'sD': this.push([{ b: 'S', d: 'down', w: 34 }]); break;
         case 'H': this.push([{ b: 'H', w: 26 }]); break;
+        case 'throw': this.push([{ b: 'H', d: 'fwd', w: 30 }]); break;
         case 'counter': this.push([{ b: 'S', d: 'down', w: 36 }]); break;
         case 'teleport': this.push([{ b: 'S', d: 'down', w: 36 }, { b: 'L', w: 10 }, { b: 'H', w: 20, cond: 'hit' }]); break;
         default: this.combo(me, opp, dist);

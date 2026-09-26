@@ -397,7 +397,7 @@ test('Chopper: Heavy Point grows (bigger hitbox, +5%), Monster Point (+25%, armo
   for (let i = 0; i < 2; i++) { env.B.x = env.A.x + 0.9; env.B.facing = -1; env.B.state = 'idle'; env.A.facing = 1; env.B.startMove('H', env.m); run(env.m, 45); env.A.state = 'idle'; env.A.hitstun = 0; }
   check(env.A.def.form === 'brain', `two hits should shrink Heavy Point back (form ${env.A.def.form}, formHits ${env.A.formHits})`);
   // Monster Point: armour ignores the first hit, second hit shrinks
-  env.A.team.meter = 3000; env.A.state = 'idle'; env.A.x = -1; env.A.startMove('X', env.m); run(env.m, 45);
+  env.A.team.meter = 3000; env.A.state = 'idle'; env.A.x = -1; env.A.startMove('X', env.m); run(env.m, 120, () => !env.A.move);
   check(env.A.def.form === 'monster', 'Monster Point hyper did not transform');
   const hitMonster = () => {
     for (const d of [1.1, 1.4, 1.7, 0.9]) {
@@ -417,6 +417,81 @@ test('Chopper: Heavy Point grows (bigger hitbox, +5%), Monster Point (+25%, armo
   check(env.A.def.form === 'brain', 'second hit should shrink Monster Point back');
 });
 
+// =====================================================================
+// Throws: forward + H up close. Inputs go through the real pad (team.input), like a player.
+function throwEnv(a, b, d = 0.5) {
+  const env = arena(a, b, { ax: 0, bx: d });
+  run(env.m, 2);
+  env.ta.input = { right: true, H: true };
+  run(env.m, 1);
+  env.ta.input = {};
+  return env;
+}
+
+test('throws: forward + H up close grabs, damages and throws the opponent away (every character)', () => {
+  for (const a of IDS) {
+    const env = throwEnv(a, 'zoro');
+    check(env.A.state === 'throw' && env.B.state === 'thrown', `${a}: forward + H next to the opponent did not grab (${env.A.state}/${env.B.state})`);
+    const hp0 = env.B.hp, T = env.A.def.throw;
+    run(env.m, T.dur + 5);
+    const dmg = hp0 - env.B.hp;
+    check(dmg >= 80 && dmg <= 140, `${a}: throw damage ${dmg} out of range`);
+    run(env.m, 90, () => env.B.state === 'knockdown');
+    check(env.B.state === 'knockdown' || env.B.state === 'getup', `${a}: thrown opponent was not knocked down (${env.B.state})`);
+    check(Math.abs(env.B.x - env.A.x) > 1.4, `${a}: throw did not create space (${Math.abs(env.B.x - env.A.x).toFixed(2)} m)`);
+  }
+});
+
+test('throws: out of reach gives a normal heavy; airborne or stunned opponents cannot be thrown', () => {
+  const far = throwEnv('luffy', 'zoro', 2.2);
+  check(far.A.state === 'attack' && far.A.move.key === 'H', `forward + H out of reach should be a normal heavy (got ${far.A.state})`);
+  const air = arena('luffy', 'zoro', { ax: 0, bx: 0.5 }); putInAir(air.B, 0.8, 1);
+  check(!air.m.tryThrow(air.A), 'grabbed an airborne opponent');
+  const stun = arena('luffy', 'zoro', { ax: 0, bx: 0.5 }); stun.B.state = 'hitstun'; stun.B.hitstun = 20;
+  check(!stun.m.tryThrow(stun.A), 'grabbed an opponent in hitstun');
+  const mon = arena('zoro', 'chopper', { ax: 0, bx: 0.9 }); mon.B.setForm('monster', mon.m); mon.B.buildPose();
+  check(!mon.m.tryThrow(mon.A), 'threw a giant Monster Point Chopper');
+});
+
+test('throws: pressing H in the break window counters — thrower knocked back, minimal damage', () => {
+  for (const a of IDS) {
+    const env = throwEnv(a, 'sanji');
+    const hpA = env.A.hp, hpB = env.B.hp, x0 = env.A.x;
+    run(env.m, 6);
+    env.tb.input = { H: true }; run(env.m, 1); env.tb.input = {};
+    check(env.B.state !== 'thrown', `${a}: throw was not broken by H inside the window`);
+    check(env.A.state === 'hitstun', `${a}: thrower was not knocked into hitstun`);
+    run(env.m, 20);
+    check(Math.abs(env.A.x - x0) > 0.4, `${a}: thrower was not knocked back`);
+    check(hpA - env.A.hp > 0 && hpA - env.A.hp <= 30, `${a}: counter damage should be minimal (${hpA - env.A.hp})`);
+    check(env.B.hp === hpB, `${a}: the defender took damage from a broken throw`);
+  }
+  // too late: pressing H after the window does nothing
+  const late = throwEnv('zoro', 'luffy');
+  run(late.m, 16);
+  late.tb.input = { H: true }; run(late.m, 1); late.tb.input = {};
+  check(late.B.state === 'thrown', 'a late H still broke the throw');
+});
+
+test('Chopper buff: Monster Point roar hits nearby foes; bigger hitboxes in every form', () => {
+  const env = arena('chopper', 'zoro', { ax: 0, bx: 1.6 });
+  env.A.team.meter = 3000; env.A.startMove('X', env.m);
+  run(env.m, 45);
+  check(env.log.some((h) => h.proj && h.proj.kind === 'roar' && !h.blocked), 'the Monster Point roar did not hit a foe 1.6 m away');
+  check(env.B.x - env.A.x > 2.2, 'the roar did not blast the foe away');
+  const F = OP.ChopperForms;
+  check(F.brain.boxScale >= 1 && F.heavy.boxScale >= 1.5 && F.monster.boxScale >= 2.5, 'Chopper hitbox scales were not buffed');
+  // Monster claws now reach well beyond arm's length of a normal-sized fighter
+  let reach = 0;
+  for (let d = 0.8; d <= 3.4; d += 0.1) {
+    const e = arena('chopper', 'zoro', { ax: 0, bx: d });
+    e.A.setForm('monster', e.m); e.A.buildPose(); e.B.x = d;
+    e.A.startMove('H', e.m); run(e.m, 20, () => e.log.length > 0);
+    if (e.log.some((h) => h.att === e.A)) reach = d;
+  }
+  check(reach >= 2.2, `Monster Point claw reach only ${reach.toFixed(1)} m`);
+});
+
 test('voices: every line has a recorded clip; playback is safe without audio', () => {
   const vdir = path.join(__dirname, '..', 'voices');
   const man = JSON.parse(fs.readFileSync(path.join(vdir, 'manifest.json'), 'utf8'));
@@ -426,7 +501,7 @@ test('voices: every line has a recorded clip; playback is safe without audio', (
     check(fs.existsSync(f) && fs.statSync(f).size > 2000, `${sp}/${key}.mp3 missing or empty`);
   };
   for (const c of OP.Roster) {
-    for (const k of ['quote', 'win', 'tag', 'kiai1', 'kiai2', 'hurt1', 'hurt2', 'ko']) need(c.id, k);
+    for (const k of ['quote', 'win', 'tag', 'kiai1', 'kiai2', 'hurt1', 'hurt2', 'ko', 'throw']) need(c.id, k);
     for (const [k, mv] of Object.entries(c.moves)) if (mv.jp) need(c.id, k);
     for (const k of ['sN', 'sF', 'sU', 'sD', 'X']) check(/[\u3040-\u30ff\u4e00-\u9faf]/.test(c.moves[k].jp || ''), `${c.id}.${k} has no Japanese call-out`);
   }

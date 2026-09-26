@@ -40,6 +40,11 @@ are in the script header.
 | Tag / Assist | I / U | Num5 / Num4 | RB / LB |
 | Pause | Enter / Esc | Num Enter | Start |
 
+**Throws:** up close, press forward + H to throw. Each character has a signature throw (Gomu Gomu
+no Bell, Anti-Manner Kick Course, Usopp Hammer…) that does solid damage and knocks the opponent
+away to make space. If you're grabbed, press H within 0.2 s to counter: the thrower is knocked
+back and takes a little damage instead.
+
 On phones and tablets, on-screen controls appear automatically: a floating stick on the
 left and buttons on the right. Landscape works best. Press **H** to show hitboxes.
 

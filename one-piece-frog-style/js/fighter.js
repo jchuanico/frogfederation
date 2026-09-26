@@ -158,6 +158,8 @@
           break;
         case 'getup': this.invuln = 2; if (this.st >= 22) { this.state = 'idle'; this.st = 0; this.comboTaken = 0; } break;
         case 'tagout': if (this.st > 50) { this.role = 'bench'; this.state = 'idle'; this.x = -99; } break;
+        case 'throw': this.throwT++; m.updateThrow(this); break;
+        case 'thrown': this.throwT++; break;
       }
       if (this.role === 'point' && pad && this.actionable()) this.handleInput(pad, m, opp);
       // auto-face the opponent when on the ground and free
@@ -184,6 +186,8 @@
         else if (up) key = 'sU'; else if (dn) key = 'sD'; else if (fwd > 0) key = 'sF';
         if (this.startMove(key, m, bonus)) return;
       }
+      // forward + H next to a grounded opponent = throw (otherwise it's a normal heavy)
+      if (pad.pressed('H') && !this.air && fwd > 0 && !dn && m.tryThrow(this)) { pad.consume('H'); return; }
       if (pad.pressed('H')) { pad.consume('H'); if (this.startMove(this.air ? 'jH' : dn ? 'cH' : 'H', m)) return; }
       if (pad.pressed('L')) { pad.consume('L'); if (this.startMove(this.air ? 'jL' : dn ? 'cL' : 'L', m)) return; }
 
@@ -248,6 +252,8 @@
 
     // ---------- physics ----------
     physics(m) {
+      if (this.state === 'thrown') return; // carried by the thrower
+      if (this.state === 'throw') { this.vx = 0; }
       const mass = this.def.mass;
       if (this.air) {
         this.vy -= G * DT;
@@ -339,6 +345,7 @@
     buildPose() {
       const def = this.def, base = def.stance, s = this.state;
       let P;
+      if (s !== 'throw') this.stretch.nk = 0;
       const opp = this._opp;
       switch (s) {
         case 'attack': P = Dr.sample(this.move.keys, this.mt, base); break;
@@ -373,6 +380,14 @@
         case 'getup': P = Dr.mix(Dr.solve(PZ.down, base), Dr.solve(PZ.getup, base), clamp(this.st / 14, 0, 1)); if (this.st > 14) P = Dr.mix(P, Dr.solve({}, base), (this.st - 14) / 8); break;
         case 'intro': P = Dr.mix(Dr.solve({}, base), Dr.solve(def.intro, base), OP.ease.inOutSine(clamp(Math.sin(this.st / 40), 0, 1))); break;
         case 'win': P = Dr.solve(def.win, base); break;
+        case 'throw': {
+          const T = def.throw; P = Dr.sample(T.keys, this.throwT, base);
+          // Gomu Gomu no Bell: the neck stretches way back, then snaps forward into a headbutt
+          const t = this.throwT;
+          this.stretch.nk = T.stretchNeck ? (t < 18 ? (t / 18) * 0.75 : t < 31 ? 0.75 * (1 - (t - 18) / 13) : 0) : 0;
+          break;
+        }
+        case 'thrown': P = Dr.solve(this.y > 0.3 ? PZ.hitAir : PZ.hit, base); break;
         default: { // idle: breathing
           const b = Math.sin(this.t * 0.07);
           const s0 = Dr.solve({}, base);
@@ -408,7 +423,7 @@
 
     // Hurtboxes follow the actual limbs — including a stretched rubber arm, which can be hit.
     hurtBoxes() {
-      if (!this.onScreen || this.invuln > 0 || this.state === 'ko' || (this.state === 'tagout' && this.st > 8)) return [];
+      if (!this.onScreen || this.invuln > 0 || this.state === 'ko' || this.state === 'throw' || this.state === 'thrown' || (this.state === 'tagout' && this.st > 8)) return [];
       if (this.move && this.move.invuln && this.mt >= this.move.invuln[0] && this.mt < this.move.invuln[1]) return [];
       const J = this.J, H = this.def.height * (this.def.bulk || 1); // chubby/muscular bodies are wider
       const out = [

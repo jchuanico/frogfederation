@@ -10,6 +10,7 @@ const out = {};
 for (const c of sb.OP.Roster) {
   const lines = { quote: c.quoteJp, win: c.winJp, tag: c.tagJp };
   for (const [k, mv] of Object.entries(c.moves)) if (mv.jp) lines[k] = mv.jp;
+  if (c.throw) lines.throw = c.throw.jp;
   out[c.id] = lines;
 }
 process.stdout.write(JSON.stringify(out, null, 1));

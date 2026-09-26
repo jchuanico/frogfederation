@@ -443,6 +443,7 @@
         'Hold BACK to block — crouch-block lows, stand-block overheads (H in the air).',
         'Chain L → H → Special → Hyper. ↓+H launches: hold ↑ to super-jump after them.',
         'Tap forward twice to dash. ↓ then ↑ = super jump. Motion inputs add +10% damage.',
+        'Up close, → + H throws. Grabbed? Press H right away to counter the throw.',
         'TAG swaps characters. Your partner heals red health while resting.',
         'Tag during a Hyper to chain your partner\'s Hyper (Crew Combo, 1 more bar).',
         'Touch: left thumb = stick, right thumb = buttons. H key toggles hitboxes.',
@@ -462,7 +463,9 @@
         text(ctx, MOVE_INPUT[k], x + 440, y, 17, '#9fe8ff', 'right', '#1b1216', 4);
         y += 40;
       }
-      text(ctx, 'Assist: ' + c.moves[c.assist].name, x, y + 4, 18, '#b8ffc6', 'left', '#1b1216', 4);
+      text(ctx, 'Throw: ' + c.throw.name, x, y + 4, 18, '#ffb3b3', 'left', '#1b1216', 4);
+      text(ctx, '→ + H (close)', x + 440, y + 4, 17, '#9fe8ff', 'right', '#1b1216', 4);
+      text(ctx, 'Assist: ' + c.moves[c.assist].name, x, y + 34, 18, '#b8ffc6', 'left', '#1b1216', 4);
       button(20, H - 64, 150, 46, 'BACK', false, () => go(Menu), 'back');
     },
   };

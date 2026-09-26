@@ -9,7 +9,9 @@
   const CAM_TOP = 128;                    // keep the action below the health bars
   const CAM_MARGIN_X = 0.6, CAM_MARGIN_TOP = 0.35;
   const CAM_ZMIN = W / 13, CAM_ZMAX = W / 5.8; // widest ≈13 m view, closest ≈5.8 m
-  const JUGGLE_CEIL = 4.2;                // metres: highest apex a hit can send someone to
+  const JUGGLE_CEIL = 4.2;
+  const THROW_TECH = 12;                  // frames the victim has to break a throw with H (0.2 s)
+  const THROWABLE = new Set(['idle', 'walk', 'crouch', 'guard', 'land', 'dash', 'attack', 'jumpsquat']);                // metres: highest apex a hit can send someone to
 
   class Team {
     constructor(cfg, side, m) {
@@ -237,7 +239,7 @@
     pushApart() {
       const A = this.teams[0].point, B = this.teams[1].point;
       if (!A.onScreen || !B.onScreen) return;
-      const pass = (f) => f.state === 'tagin' || f.state === 'tagout' || f.state === 'ko' || (f.move && f.move.passThrough && f.mt < f.move.startup + f.move.active + 4);
+      const pass = (f) => f.state === 'tagin' || f.state === 'tagout' || f.state === 'ko' || f.state === 'throw' || f.state === 'thrown' || (f.move && f.move.passThrough && f.mt < f.move.startup + f.move.active + 4);
       if (pass(A) || pass(B)) return;
       const a = A.pushBox(), b = B.pushBox();
       if (!(a.y0 < b.y1 && b.y0 < a.y1)) return;
@@ -438,6 +440,75 @@
       }
     }
 
+    // ---------- throws ----------
+    // Forward + H next to a grounded, free opponent grabs them. Returns false (so a normal heavy
+    // comes out) when nobody is in reach or the opponent can't be thrown right now.
+    tryThrow(f) {
+      const o = this.opponentOf(f), T = f.def.throw;
+      if (!o || !T || this.phase !== 'fight' || f.air || o.air || !o.alive || o.role !== 'point') return false;
+      if (!THROWABLE.has(o.state) || o.invuln > 0 || o.def.armor) return false; // stunned, knocked down or a giant can't be thrown
+      if (o.state === 'attack' && o.move && o.move.invuln && o.mt >= o.move.invuln[0] && o.mt < o.move.invuln[1]) return false;
+      const dx = (o.x - f.x) * f.facing;
+      if (dx <= 0 || dx > f.pushBox().hw + o.pushBox().hw + 0.35) return false;
+      f.state = 'throw'; f.throwT = 0; f.st = 0; f.move = null; f.vx = 0; f.throwVictim = o;
+      o.state = 'thrown'; o.throwT = 0; o.st = 0; o.move = null; o.vx = o.vy = 0; o.thrower = f; o.facing = -f.facing; o.counterArmed = false;
+      o.setExpr('hurt');
+      this.hitstop = 4; OP.Audio.sfx('block'); f.say('throw');
+      return true;
+    }
+
+    updateThrow(f) {
+      const T = f.def.throw, v = f.throwVictim, t = f.throwT;
+      if (v && v.state === 'thrown' && v.thrower === f) {
+        const p = samplePath(T.victim, t);
+        v.x = this.clampX(f.x + f.facing * p.x); v.y = p.y; v.air = v.y > 0.01;
+        // the victim can break the throw with H in the first few frames
+        if (t <= THROW_TECH && v.team.pad.edge('H')) { this.breakThrow(f, v); return; }
+        if (t === T.release) this.releaseThrow(f, v);
+      }
+      if (t >= T.dur) { f.state = 'idle'; f.st = 0; f.throwVictim = null; }
+    }
+
+    releaseThrow(f, v) {
+      const T = f.def.throw, dir = T.behind ? -f.facing : f.facing, massK = REF_MASS / v.def.mass;
+      let dmg = T.dmg * (f.def.dmgMul || 1);
+      if (f.def.id === 'sanji' && v.def.id === 'nami') { dmg *= 0.5; f.setExpr('heart', 70); this.hearts(f); }
+      dmg = Math.round(dmg);
+      v.hp = Math.max(this.mode === 'training' ? 1 : 0, v.hp - dmg);
+      v.red = Math.min(v.maxHp - v.hp, v.red + dmg * 0.55);
+      const combo = f.team.combo; combo.hits++; combo.dmg += dmg; combo.t = 0; combo.show = 0;
+      v.comboTaken++; v.thrower = null; f.throwVictim = null;
+      // thrown bodies fly until they hit the deck (knockdown) and can't be juggled on the way
+      v.state = 'hitstun'; v.hitstun = 120; v.st = 0; v.air = true; v.y = Math.max(v.y, 0.05); v.invuln = 90;
+      v.vx = dir * T.kb[0] * massK;
+      v.vy = Math.min(T.kb[1] * Math.min(massK, 1.12), Math.sqrt(2 * OP.G * Math.max(0.3, JUGGLE_CEIL - v.y)));
+      v.groundBounce = false; v.wallBounce = false; v.flashT = 6; v.setExpr('hurt');
+      if (v.def.formHits && ++v.formHits >= v.def.formHits) v.setForm('brain', this);
+      const cx = (f.x + v.x) / 2, cy = v.y + v.def.height * 0.55;
+      this.hitstop = 12; this.shake(6); OP.Audio.sfx('hitH');
+      this.spark(cx, cy, 'punch', 1.6, dir);
+      if (T.popText) this.popText(T.popText, v.x, v.y + v.def.height + 0.5, '#ffe14d', 1.1);
+      v.say(Math.random() < 0.5 ? 'hurt1' : 'hurt2');
+      f.team.meter = Math.min(3000, f.team.meter + dmg * 0.9); v.team.meter = Math.min(3000, v.team.meter + dmg * 0.5);
+      if (v.hp <= 0) this.onKO(v, dir);
+    }
+
+    // Throw countered: the victim slips free and the thrower is knocked back for a little damage.
+    breakThrow(f, v) {
+      const massK = REF_MASS / f.def.mass;
+      v.thrower = null; f.throwVictim = null; f.stretch.nk = 0;
+      v.state = v.y > 0.05 ? 'air' : 'blockstun'; v.blockstun = 8; v.st = 0; v.vx = -f.facing * 1.2; v.facing = f.x > v.x ? 1 : -1;
+      const dmg = 20;
+      f.hp = Math.max(this.mode === 'training' ? 1 : 0, f.hp - dmg); f.red = Math.min(f.maxHp - f.hp, f.red + dmg * 0.55);
+      f.state = 'hitstun'; f.hitstun = 22; f.st = 0; f.vx = -f.facing * 4.8 * Math.min(massK, 1.4); f.vy = 0; f.flashT = 6; f.setExpr('hurt');
+      this.hitstop = 10; this.shake(4); OP.Audio.sfx('clang'); OP.Audio.sfx('counter');
+      this.spark((f.x + v.x) / 2, v.y + v.def.height * 0.6, 'block', 1.4);
+      this.popText('COUNTERED!', v.x, v.y + v.def.height + 0.45, '#9fe8ff', 1);
+      v.say(Math.random() < 0.5 ? 'kiai1' : 'kiai2');
+      v.team.meter = Math.min(3000, v.team.meter + 60);
+      if (f.hp <= 0) this.onKO(f, -f.facing);
+    }
+
     // Set someone on fire: damage over time for `frames` (Sanji's Hell Memories burns 5 s).
     ignite(f, frames) {
       if (!f.burn) this.popText('BURN!', f.x, f.y + f.def.height + 0.35, '#ff9a3d', 0.9);
@@ -509,6 +580,10 @@
           p.spread.forEach((o, i) => add({ kind: 'cloud', big: true, x: this.clampX(tx + o), y: p.y + (i % 2) * 0.3, vx: 0, vy: 0, r: 0.34, delay: p.delay + i * p.stagger, life: p.delay + i * p.stagger + 12 }));
           break;
         }
+        case 'roar': // shockwave centred on the (now giant) body
+          add({ x: f.x, y: p.y, vx: 0, vy: 0, r: p.r, len: 0 });
+          this.popText('ガオオッ!!', f.x, f.y + f.def.height + 1.6, '#ffffff', 1.6); this.shake(10); OP.Audio.sfx('don');
+          break;
         default:
           add({ x: f.x + dir * 0.7, y: p.y, vx: dir * p.vx, vy: p.vy || 0, r: p.r, len: p.len });
       }
@@ -523,6 +598,7 @@
         case 'lance': case 'pellet': { const s = Math.hypot(p.vx, p.vy) || 1, ux = p.vx / s, uy = p.vy / s; return OP.cap(p.x - ux * p.len / 2, p.y - uy * p.len / 2, p.x + ux * p.len / 2, p.y + uy * p.len / 2, p.r); }
         case 'firebird': return OP.cap(p.x, p.y, p.x, p.y, p.r);
         case 'fireburst': return OP.cap(p.x, p.y - 0.35, p.x, p.y + 0.35, p.r);
+        case 'roar': return OP.cap(p.x, p.y - 0.5, p.x, p.y + 0.5, p.r);
       }
       return null;
     }
@@ -543,7 +619,7 @@
           }
           if (p.t % 2 === 0) this.parts.push({ type: 'fire', x: p.x - p.vx * 0.03, y: p.y - p.vy * 0.03, vx: -p.vx * 0.2, vy: 0.5, life: 22, max: 22, s: 0.15 + Math.random() * 0.15 });
         }
-        if (p.grow) { p.r = Math.min(p.maxR, p.r + p.grow); if (p.t % 2 === 0) for (let i = 0; i < 3; i++) this.parts.push({ type: 'fire', x: p.x + (Math.random() - 0.5) * p.r * 1.6, y: p.y + (Math.random() - 0.5) * p.r * 1.6, vx: p.vx * 0.4, vy: 1 + Math.random(), life: 20, max: 20, s: 0.15 + Math.random() * 0.2 }); }
+        if (p.grow) { p.r = Math.min(p.maxR, p.r + p.grow); if (p.kind === 'fireburst' && p.t % 2 === 0) for (let i = 0; i < 3; i++) this.parts.push({ type: 'fire', x: p.x + (Math.random() - 0.5) * p.r * 1.6, y: p.y + (Math.random() - 0.5) * p.r * 1.6, vx: p.vx * 0.4, vy: 1 + Math.random(), life: 20, max: 20, s: 0.15 + Math.random() * 0.2 }); }
         p.x += p.vx * OP.DT; p.y += p.vy * OP.DT;
         if (p.kind === 'cloud' && p.t === p.delay) {
           OP.Audio.sfx('thunder'); this.shake(p.big ? 6 : 4); this.flash = 3;
@@ -874,6 +950,16 @@
           ctx.fillStyle = '#1b1216'; ctx.beginPath(); ctx.arc(p.r * 0.55, 0.05, 0.025, 0, Math.PI * 2); ctx.fill();
           break;
         }
+        case 'roar': { // expanding shockwave rings
+          const k = p.t / 16;
+          for (let i = 0; i < 3; i++) {
+            const rr = p.r * (1 - i * 0.18);
+            ctx.globalAlpha = Math.max(0, (1 - k) * (0.8 - i * 0.2));
+            ctx.strokeStyle = i ? '#ffd9ec' : '#ffffff'; ctx.lineWidth = 0.08 - i * 0.02;
+            ctx.beginPath(); ctx.ellipse(p.x, p.y, rr, rr * 0.8, 0, 0, Math.PI * 2); ctx.stroke();
+          }
+          break;
+        }
         case 'fireburst': {
           const g = ctx.createRadialGradient(p.x, p.y, p.r * 0.2, p.x, p.y, p.r * 1.2);
           g.addColorStop(0, 'rgba(255,255,220,0.95)'); g.addColorStop(0.45, 'rgba(255,150,30,0.85)'); g.addColorStop(1, 'rgba(210,40,0,0)');
@@ -1024,6 +1110,13 @@
         void k;
       }
     }
+  }
+
+  // Linear interpolation along [{f, x, y}] keyframes.
+  function samplePath(keys, t) {
+    if (t <= keys[0].f) return keys[0];
+    for (let i = 1; i < keys.length; i++) if (t <= keys[i].f) { const a = keys[i - 1], b = keys[i], k = OP.ease.inOutSine((t - a.f) / Math.max(1, b.f - a.f)); return { x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k) }; }
+    return keys[keys.length - 1];
   }
 
   function bolt(ctx, x0, y0, x1, y1, w, n) {

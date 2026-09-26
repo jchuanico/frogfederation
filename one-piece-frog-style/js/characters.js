@@ -349,7 +349,7 @@
     id: 'chopper', name: 'Tony Tony Chopper', short: 'CHOPPER', title: 'Cotton Candy Lover',
     quote: "I'm a reindeer... and a doctor!", quoteJp: 'おれは…トナカイで、いしゃだ！',
     height: 1.0, mass: 32, hp: 950, walk: 1.9, backWalk: 1.6, dash: 6.2, jumpH: 1.7, airJumps: 0, restitution: 0.5,
-    props: { headR: 0.17, torso: 0.2, ua: 0.14, fa: 0.13, foot: 0.1 }, bulk: 1.7, boxScale: 0.8, dmgMul: 1, form: 'brain',
+    props: { headR: 0.17, torso: 0.2, ua: 0.14, fa: 0.13, foot: 0.1 }, bulk: 1.7, boxScale: 1.05, dmgMul: 1, form: 'brain',
     voice: { pitch: 1.55, rate: 1.15, gender: 'f' },
     pal: [
       { skin: '#4a3222', fur: '#9a6a44', furLight: '#ecd0a8', shorts: '#d9546e', hat: '#ff8fb8', hatX: '#ffffff', nose: '#3a7fe0', antler: '#b5834e', eye: '#1c1414' },
@@ -389,15 +389,17 @@
         keys: [{ f: 0, p: {} }, { f: 6, p: Object.assign({}, P.squat, { lean: 40, head: 25 }) }, { f: 10, p: Object.assign({}, P.jumpUp, { lean: -10, head: -25, aF1: -40, aF2: -20, aB1: -50, aB2: -30 }) }, { f: 37, p: P.jumpFall }], expr: 'shout' }),
       sD: M({ name: 'Guard Point', shout: 'Guard Point!', kind: 'special', startup: 4, active: 26, recovery: 12, dmg: 0, armor: { from: 4, to: 30, mul: 0.4 }, noBox: true, sfx: 'charge',
         keys: [{ f: 0, p: {} }, { f: 4, p: { lean: 30, head: 10, aF1: 30, aF2: 150, aB1: 20, aB2: 140, hipH: 0.34, fF: [0.14, 0], fB: [-0.14, 0] } }, { f: 30, p: { lean: 30, head: 10, aF1: 30, aF2: 150, aB1: 20, aB2: 140, hipH: 0.34, fF: [0.14, 0], fB: [-0.14, 0] } }, { f: 42, p: {} }], expr: 'grit' }),
+      // Transforming lets out a roar: a shockwave that blasts away anyone close by.
       X: M({ name: 'Monster Point', shout: 'Rumble! ... Monster Point!', kind: 'hyper', startup: 26, active: 1, recovery: 14, dmg: 0, invuln: [0, 34], transform: { at: 18, form: 'monster' }, noBox: true, sfx: 'charge', shake: 10, don: true,
+        proj: { at: 19, kind: 'roar', vx: 0, y: 1.5, r: 0.6, grow: 0.19, maxR: 2.9, life: 16, dmg: 110, kb: [5.2, 5.5], hitstun: 36, knockdown: true },
         keys: [{ f: 0, p: {} }, { f: 14, p: { lean: 30, head: 20, aF1: 10, aF2: 0, aB1: 0, aB2: -10, hipH: 0.36 } }, { f: 22, p: { lean: -16, head: -20, aF1: 160, aF2: 180, aB1: 150, aB2: 175 } }, { f: 41, p: {} }], expr: 'intense', cutExpr: 'shout' }),
     },
   };
   // Heavy Point and Monster Point: same moves, bigger body (hurt- and hitboxes scale with height).
   const HEAVY = Object.assign({}, CHOPPER, { form: 'heavy', height: 2.1, mass: 140, walk: 1.5, backWalk: 1.2, dash: 5.2, jumpH: 1.25, restitution: 0.2,
-    props: null, bulk: 1.35, boxScale: 1.2, dmgMul: 1.05, formHits: 2, voice: { pitch: 0.9, rate: 1.0, gender: 'm' } });
-  const MONSTER = Object.assign({}, CHOPPER, { form: 'monster', height: 3.4, mass: 420, walk: 1.15, backWalk: 0.9, dash: 4, jumpH: 0.9, restitution: 0.1,
-    props: null, bulk: 1.45, boxScale: 1.9, dmgMul: 1.25, formHits: 2, armor: true, voice: { pitch: 0.5, rate: 0.9, gender: 'm' } });
+    props: null, bulk: 1.35, boxScale: 1.55, dmgMul: 1.05, formHits: 2, voice: { pitch: 0.9, rate: 1.0, gender: 'm' } });
+  const MONSTER = Object.assign({}, CHOPPER, { form: 'monster', height: 3.4, mass: 420, walk: 1.55, backWalk: 1.2, dash: 5.4, jumpH: 1.05, restitution: 0.1,
+    props: { headR: 0.1 }, bulk: 1.5, boxScale: 2.7, dmgMul: 1.25, formHits: 2, armor: true, voice: { pitch: 0.5, rate: 0.9, gender: 'm' } });
   OP.ChopperForms = { brain: CHOPPER, heavy: HEAVY, monster: MONSTER };
   for (const f of [HEAVY, MONSTER]) f.baseDef = CHOPPER;
 
@@ -411,6 +413,39 @@
     chopper: { sN: 'ランブル！…ヘビーポイント！', sN2: 'ヘビー…ゴング！', sF: 'こくてい…ロゼオ！', sU: 'ホーンポイント！', sD: 'ガードポイント！', X: 'ランブル！…モンスターポイント！' },
   };
 
+  // ======================================================================
+  // Throws (forward + H up close). `keys` animate the thrower; `victim` is the path the thrown
+  // body follows relative to the thrower (x forward, metres); at `release` the victim takes
+  // `dmg` and is flung with `kb` (m/s, 70 kg reference) — behind the thrower when `behind`.
+  // The victim can break it by pressing H within the first TECH frames (see match.js).
+  const grab = { lean: 14, aF1: 92, aF2: 96, aB1: 86, aB2: 92, fF: [0.2, 0] };
+  const THROWS = {
+    luffy: { name: 'Gomu Gomu no Bell', jp: 'ゴムゴムの…かね！', dmg: 115, dur: 46, release: 32, kb: [5.4, 4.2], stretchNeck: true,
+      keys: [{ f: 0, p: grab }, { f: 18, p: Object.assign({}, grab, { lean: -48, head: -24, fB: [-0.32, 0], hipH: 0.43 }), ease: 'outCubic' },
+        { f: 31, p: Object.assign({}, grab, { lean: 42, head: 28, fF: [0.34, 0], hipH: 0.4 }), ease: 'inCubic' }, { f: 46, p: {} }],
+      victim: [{ f: 0, x: 0.58, y: 0 }, { f: 18, x: 0.66, y: 0 }, { f: 31, x: 0.52, y: 0 }] },
+    zoro: { name: 'Oni Nage', jp: 'おに…なげぇっ！', dmg: 110, dur: 42, release: 27, kb: [4.6, 3.8], behind: true,
+      keys: [{ f: 0, p: Object.assign({}, grab, { swF: 150, swB: 160 }) }, { f: 14, p: { lean: -22, aF1: 165, aF2: 172, swF: 190, aB1: 158, aB2: 168, swB: 190, hipH: 0.44 }, ease: 'outCubic' },
+        { f: 27, p: { lean: 42, aF1: 60, aF2: 30, swF: 20, aB1: 52, aB2: 24, swB: 30, fF: [0.3, 0], hipH: 0.37 }, ease: 'inCubic' }, { f: 42, p: {} }],
+      victim: [{ f: 0, x: 0.55, y: 0 }, { f: 14, x: 0.1, y: 1.5 }, { f: 27, x: -0.65, y: 0.35 }] },
+    sanji: { name: 'Anti-Manner Kick Course', jp: 'アンチマナー…キックコース！', dmg: 115, dur: 44, release: 22, kb: [2.2, 8.2],
+      keys: [{ f: 0, p: { lean: -6, lF1: 70, lF2: 92, fF: null } }, { f: 12, p: { lean: 34, head: -10, hipH: 0.3, fF: [0.14, 0], fB: [-0.16, 0] }, ease: 'outCubic' },
+        { f: 21, p: { lean: -24, head: 12, lF1: 176, lF2: 178, fF: null, fB: [0, 0], hipH: 0.47 }, ease: 'inCubic' }, { f: 44, p: {} }],
+      victim: [{ f: 0, x: 0.55, y: 0 }, { f: 16, x: 0.5, y: 0 }, { f: 22, x: 0.42, y: 1.1 }] },
+    nami: { name: 'Swing Arm', jp: 'スイング…アーム！', dmg: 100, dur: 40, release: 26, kb: [6, 3.2],
+      keys: [{ f: 0, p: Object.assign({}, grab, { staff: 90 }) }, { f: 12, p: { lean: -18, aF1: 20, aF2: -20, staff: -40, fB: [-0.24, 0] }, ease: 'outCubic' },
+        { f: 26, p: { lean: 30, aF1: 150, aF2: 165, staff: 160, fF: [0.3, 0], hipH: 0.4 }, ease: 'inCubic' }, { f: 40, p: {} }],
+      victim: [{ f: 0, x: 0.55, y: 0 }, { f: 12, x: 0.5, y: 0.1 }, { f: 26, x: 0.8, y: 0.9 }] },
+    usopp: { name: 'Usopp Hammer (5 Tons)', jp: 'ウソップ…ハンマー！', dmg: 105, dur: 44, release: 30, kb: [4.4, 3.6], popText: '5 TONS!',
+      keys: [{ f: 0, p: grab }, { f: 18, p: { lean: -16, aB1: 175, aB2: 190, staff: 200, aF1: 100, aF2: 100, hipH: 0.46 }, ease: 'outCubic' },
+        { f: 29, p: { lean: 34, aB1: 100, aB2: 70, staff: 40, aF1: 60, aF2: 40, fF: [0.28, 0], hipH: 0.38 }, ease: 'inCubic' }, { f: 44, p: {} }],
+      victim: [{ f: 0, x: 0.55, y: 0 }, { f: 29, x: 0.62, y: 0 }] },
+    chopper: { name: 'Rumble Toss', jp: 'ランブル…トス！', dmg: 105, dur: 42, release: 26, kb: [4.6, 4], behind: true,
+      keys: [{ f: 0, p: grab }, { f: 14, p: { lean: -20, aF1: 168, aF2: 176, aB1: 160, aB2: 172, hipH: 0.44 }, ease: 'outCubic' },
+        { f: 26, p: { lean: 38, aF1: 70, aF2: 40, aB1: 64, aB2: 36, fF: [0.28, 0], hipH: 0.38 }, ease: 'inCubic' }, { f: 42, p: {} }],
+      victim: [{ f: 0, x: 0.5, y: 0 }, { f: 14, x: 0.05, y: 1.3 }, { f: 26, x: -0.6, y: 0.3 }] },
+  };
+
   // Tag-in dive attack shared by everyone.
   const TAG_ENTRY = M({ name: 'Tag Entry', startup: 0, active: 60, recovery: 0, dmg: 50, guard: 'high', hitstun: 18, hitstop: 9, kb: [2.4, 1], box: { seg: ['knF', 'ftF'], r: 0.12 }, hitSfx: 'hitM' });
 
@@ -418,7 +453,9 @@
   for (const c of ROSTER) {
     c.flags = c.flags || {};
     for (const k in c.moves) { c.moves[k].key = k; if (JP[c.id] && JP[c.id][k]) c.moves[k].jp = JP[c.id][k]; }
+    c.throw = THROWS[c.id];
   }
+  for (const f of [HEAVY, MONSTER]) f.throw = THROWS.chopper;
   OP.Roster = ROSTER;
   OP.RosterById = Object.fromEntries(ROSTER.map((c) => [c.id, c]));
   OP.TAG_ENTRY = TAG_ENTRY;

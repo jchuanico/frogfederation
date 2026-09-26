@@ -85,7 +85,8 @@
     const sh = [hip[0] + u[0] * D.torso * 0.9, hip[1] + u[1] * D.torso * 0.9];
     const hd = P.lean + P.head;
     const hu = upDir(hd);
-    const head = [neck[0] + hu[0] * (D.neck + D.headR * 0.9), neck[1] + hu[1] * (D.neck + D.headR * 0.9)];
+    const nl = D.neck + D.headR * 0.9 + (ext.nk || 0); // Luffy's neck can stretch (Gomu Gomu no Bell)
+    const head = [neck[0] + hu[0] * nl, neck[1] + hu[1] * nl];
     const arm = (a1, a2, e) => {
       const d1 = limbDir(a1), d2 = limbDir(a2);
       const el = [sh[0] + d1[0] * D.ua, sh[1] + d1[1] * D.ua];
@@ -252,12 +253,17 @@
     torso(ctx, J, pal, ol, f) {
       const { hip, u, D } = J, H = D.H * J.bulk, n = perp(u), form = f && f.def.form;
       const shape = torsoShape(J, 0.09, 0.11);
-      if (form === 'monster') { // shaggy mane of fur around the huge torso
-        const c = add(hip, u, D.torso * 0.6);
-        ctx.fillStyle = shade(pal.fur, -0.2); ctx.strokeStyle = OUT; ctx.lineWidth = ol * 2;
-        ctx.beginPath();
-        for (let i = 0; i <= 18; i++) { const a = (i / 18) * Math.PI * 2, r = (i % 2 ? 0.2 : 0.26) * H; ctx.lineTo(c[0] + Math.cos(a) * r, c[1] + Math.sin(a) * r * 1.2); }
-        ctx.closePath(); ctx.stroke(); ctx.fill();
+      if (form === 'monster') { // thick shaggy mane over the shoulders and back
+        const c = add(hip, u, D.torso * 0.72), tufts = [];
+        for (let i = 0; i < 13; i++) {
+          const a = 1.0 + (i / 12) * 3.2; // radians in body space: from the chest, over the top, down the back
+          const dir = [Math.cos(a), Math.sin(a)];
+          tufts.push([add(c, dir, 0.11 * H), dir, (0.1 + (i % 3) * 0.025) * H]);
+        }
+        for (const pass of [0, 1]) for (const [p0, d, L] of tufts) {
+          const n2 = perp(d), tip = add(p0, d, L);
+          poly(ctx, [add(p0, n2, 0.05 * H), tip, add(p0, n2, -0.05 * H)], pass ? shade(pal.fur, -0.22) : null, pass ? null : OUT, ol * 2);
+        }
       }
       poly(ctx, shape, pal.fur, OUT, ol * 2);
       const belly = add(add(hip, u, D.torso * 0.45), n, 0.03 * H);
@@ -266,6 +272,18 @@
       ell(ctx, hip[0], hip[1] - 0.01 * H, 0.1 * H, 0.07 * H, 0, pal.shorts);
     },
   };
+
+  // Jagged fur jutting out along a limb (Monster Point).
+  function furTufts(ctx, a, b, w, col, ol) {
+    const d = norm(sub(b, a)), n = perp(d), L = len(sub(b, a)), cnt = Math.max(2, Math.round(L / (w * 0.9)));
+    for (const pass of [0, 1]) for (let i = 0; i < cnt; i++) {
+      for (const side of [1, -1]) {
+        const p0 = add(a, d, L * (i + 0.5) / cnt), base = add(p0, n, side * w * 0.42);
+        const tip = add(add(base, n, side * w * 0.45), d, w * 0.35);
+        poly(ctx, [add(base, d, -w * 0.28), tip, add(base, d, w * 0.28)], pass ? col : null, pass ? null : OUT, ol * 2);
+      }
+    }
+  }
 
   function torsoShape(J, wh, ws) {
     const { hip, neck, u, D } = J, H = D.H * J.bulk, n = perp(u);
@@ -346,7 +364,9 @@
   const FLASH = new Proxy({}, { get: () => '#ffffff' });
 
   function drawFighter(ctx, f, J, opt = {}) {
-    const def = f.def, st = STYLE[def.id], pal = opt.flash ? FLASH : f.pal, H = def.height;
+    const def = f.def, st = STYLE[def.id], H = def.height;
+    let pal = opt.flash ? FLASH : f.pal;
+    if (def.form === 'monster' && !opt.flash) pal = Object.assign({}, pal, { shorts: shade(pal.fur, -0.4) }); // torn shorts buried in fur
     const ol = 0.012;
     ctx.save();
     ctx.translate(f.x, f.y);
@@ -364,6 +384,7 @@
       const e = f.stretch && f.stretch[side === 'F' ? 'aF' : 'aB'] || 0;
       const w2 = e > 0.2 ? armW[1] * clamp(1 - e * 0.06, 0.65, 1) : armW[1];
       limb(ctx, [J.sh, el, ha], [armW[0], w2], cols, ol);
+      if (def.form === 'monster') { furTufts(ctx, J.sh, el, armW[0], cols[0], ol); furTufts(ctx, el, ha, w2, cols[1], ol); }
       if (st.cuff) { const d = norm(sub(ha, el)); stroke(ctx, [add(ha, d, -0.05), add(ha, d, -0.02)], armW[1] * 1.25, '#fafafa'); }
       const fs = (side === 'F' ? fist : 1) * 0.034 * H * Math.sqrt(bulk);
       circle(ctx, ha[0], ha[1], fs, dark ? shade(pal.skin, -0.12) : pal.skin, OUT, ol * 2);
@@ -375,6 +396,7 @@
     const drawLeg = (kn, ft, dark, shinAng) => {
       const cols = dark ? legCols.map((c) => shade(c, -0.18)) : legCols;
       limb(ctx, [J.hip, kn, ft], legW, cols, ol);
+      if (def.form === 'monster') furTufts(ctx, kn, ft, legW[1], cols[1], ol);
       const fd = limbDir(shinAng + 90);
       const toe = add(ft, fd, J.D.foot);
       limb(ctx, [add(ft, fd, -0.015), toe], [legW[1] * 0.9], [dark ? shade(st.shoe(pal), -0.2) : st.shoe(pal)], ol);
@@ -394,6 +416,7 @@
     if (def.weapon && P.staff != null && staffHand === 'B') staff(ctx, J, pal, ol, P.staff, 'B', def.weapon);
     st.torso(ctx, J, pal, ol, f);
     drawLeg(J.knF, J.ftF, false, P.lF2);
+    if (f.stretch && f.stretch.nk > 0.05) limb(ctx, [J.neck, J.head], [armW[0] * 0.95], [pal.skin], ol); // stretched rubber neck
     // head
     ctx.save();
     ctx.translate(J.head[0], J.head[1]);
@@ -523,13 +546,15 @@
   // Chopper: round reindeer face, blue nose, antlers and the pink top hat with the white cross.
   function reindeerHead(ctx, def, pal, expr, o, ol) {
     const form = def.form || 'brain', fur = pal.fur;
-    const furPal = Object.assign({}, pal, { skin: fur });
+    const furPal = Object.assign({}, pal, { skin: fur }, form === 'monster' ? { eye: '#ff3030' } : null);
+    const ant = form === 'monster' ? 1.4 : 1;
     // antlers behind the hat
     ctx.lineCap = 'round';
     for (const s of [-1, 1]) {
       const bx = s < 0 ? -0.55 : 0.45;
-      const pts = [[bx, 0.75], [bx + s * 0.35, 1.35], [bx + s * 0.6, 1.9]];
-      const tines = [[pts[1], [pts[1][0] + s * 0.4, pts[1][1] + 0.15]], [[bx + s * 0.48, 1.62], [bx + s * 0.25, 2.0]]];
+      const A = (x, y) => [bx + (x - bx) * ant, 0.75 + (y - 0.75) * ant];
+      const pts = [A(bx, 0.75), A(bx + s * 0.35, 1.35), A(bx + s * 0.6, 1.9)];
+      const tines = [[pts[1], A(bx + s * 0.75, 1.5)], [A(bx + s * 0.48, 1.62), A(bx + s * 0.25, 2.0)]];
       stroke(ctx, pts, 0.16 + ol * 2, OUT); for (const t of tines) stroke(ctx, t, 0.12 + ol * 2, OUT);
       stroke(ctx, pts, 0.16, pal.antler); for (const t of tines) stroke(ctx, t, 0.12, pal.antler);
     }
@@ -539,7 +564,11 @@
     // face
     ell(ctx, 0.05, -0.05, 1.02, 0.95, 0, fur, OUT, ol * 2);
     ell(ctx, 0.42, -0.5, 0.6, 0.42, 0, pal.furLight);
-    face(ctx, 'chopper', furPal, form === 'monster' && expr !== 'hurt' && expr !== 'ko' ? 'intense' : expr, o, ol);
+    face(ctx, 'chopper', furPal, form === 'monster' && expr !== 'hurt' && expr !== 'ko' ? 'grit' : expr, o, ol);
+    if (form === 'monster') { // fangs
+      const [mx, my] = FACE.mouth;
+      for (const dx of [-0.13, 0.13]) poly(ctx, [[mx + dx - 0.05, my - 0.02], [mx + dx + 0.05, my - 0.02], [mx + dx, my - 0.24]], '#ffffff', OUT, ol);
+    }
     // big blue nose
     circle(ctx, 0.92, -0.28, 0.2, pal.nose, OUT, ol * 1.5); circle(ctx, 0.86, -0.22, 0.06, 'rgba(255,255,255,0.7)');
     // pink top hat with the white cross
