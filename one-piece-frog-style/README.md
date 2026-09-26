@@ -62,8 +62,15 @@ left and buttons on the right. Landscape works best. Press **H** to show hitboxe
 dependencies. It checks move data and poses, capsule hitbox maths, every attack's reach and
 whiff range, blocking rules, jump-ins, cross-ups and anti-airs, each character mechanic, and
 full CPU matches for every character, drawn into a mock canvas. The matches also check for
-crashes, NaN values, and the camera losing a fighter. GitHub Actions runs it on every push
-(`.github/workflows/game-tests.yml`). Use `--quick` for a faster run.
+crashes, NaN values, and the camera losing a fighter. Use `--quick` for a faster run.
+
+`node one-piece-frog-style/tests/browser.js` runs the real page in headless Chromium (needs
+`npm i --no-save playwright && npx playwright install chromium`). It checks that the music moves
+to its pre-rendered loop, that audio nodes aren't piling up during a fight (the cause of the old
+stutter), that voice clips play, that the page has no errors, and, on an emulated phone, that the
+touch controls and corner pause button work and rapid taps never zoom the page.
+
+GitHub Actions runs both suites on every push (`.github/workflows/game-tests.yml`).
 
 ## Adding a character
 Add an entry to `js/characters.js` (stats, palette, stance, moves with frame data and pose
