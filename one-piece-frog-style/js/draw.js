@@ -7,9 +7,11 @@
   const OUT = '#1b1216';
 
   // Body proportions as fractions of total height (slightly anime: bigger head).
+  // Legs always use the default fractions (the IK pose cache depends on them); characters can
+  // override head, torso and arm proportions — e.g. chibi Chopper's big head and short arms.
   function dims(def) {
-    const H = def.height;
-    return { H, thigh: 0.245 * H, shin: 0.235 * H, torso: 0.285 * H, neck: 0.03 * H, headR: 0.088 * H, ua: 0.165 * H, fa: 0.152 * H, foot: 0.075 * H };
+    const H = def.height, p = def.props || {};
+    return { H, thigh: 0.245 * H, shin: 0.235 * H, torso: (p.torso ?? 0.285) * H, neck: 0.03 * H, headR: (p.headR ?? 0.088) * H, ua: (p.ua ?? 0.165) * H, fa: (p.fa ?? 0.152) * H, foot: (p.foot ?? 0.075) * H };
   }
 
   // ---------- pose resolution ----------
@@ -100,7 +102,7 @@
     const [elB, haB] = arm(P.aB1, P.aB2, ext.aB);
     const [knF, ftF] = leg(P.lF1, P.lF2, ext.lF);
     const [knB, ftB] = leg(P.lB1, P.lB2, ext.lB);
-    return { D, hip, neck, sh, head, hd, u, elF, haF, elB, haB, knF, ftF, knB, ftB, P };
+    return { D, hip, neck, sh, head, hd, u, elF, haF, elB, haB, knF, ftF, knB, ftB, P, bulk: def.bulk || 1 };
   }
 
   // ---------- drawing helpers ----------
@@ -222,8 +224,51 @@
     },
   };
 
+  STYLE.usopp = {
+    arm: (pal) => [pal.skin, pal.skin], armW: [0.042, 0.038],
+    leg: (pal) => [pal.overalls, pal.overalls], legW: [0.064, 0.052],
+    shoe: (pal) => pal.boots,
+    torso(ctx, J, pal, ol) {
+      const { hip, u, D } = J, H = D.H, n = perp(u);
+      poly(ctx, torsoShape(J, 0.085, 0.1), pal.skin, OUT, ol * 2);
+      // overall bib + straps
+      const top = add(hip, u, D.torso * 0.62);
+      poly(ctx, [add(hip, n, -0.09 * H), add(hip, n, 0.088 * H), add(top, n, 0.085 * H), add(top, n, -0.03 * H)], pal.overalls, OUT, ol);
+      stroke(ctx, [add(top, n, 0.075 * H), add(J.neck, n, -0.01 * H)], 0.02 * H, pal.overalls);
+      stroke(ctx, [add(top, n, -0.02 * H), add(J.neck, n, -0.05 * H)], 0.02 * H, shade(pal.overalls, -0.2));
+      circle(ctx, add(top, n, 0.07 * H)[0], add(top, n, 0.07 * H)[1], 0.008 * H, '#d6b24a');
+      // belt with a pouch of ammo
+      stroke(ctx, [add(add(hip, u, D.torso * 0.12), n, -0.09 * H), add(add(hip, u, D.torso * 0.12), n, 0.088 * H)], 0.02 * H, '#4a2e18');
+      const pch = add(add(hip, u, D.torso * 0.05), n, -0.08 * H);
+      poly(ctx, [add(pch, n, -0.03 * H), add(pch, n, 0.02 * H), add(add(pch, n, 0.02 * H), u, -0.06 * H), add(add(pch, n, -0.03 * H), u, -0.06 * H)], '#8a5a2b', OUT, ol);
+      ell(ctx, hip[0], hip[1] - 0.01 * H, 0.095 * H, 0.065 * H, 0, pal.overalls);
+    },
+  };
+
+  STYLE.chopper = {
+    arm: (pal) => [pal.fur, pal.fur], armW: [0.06, 0.055],
+    leg: (pal) => [pal.shorts, pal.fur], legW: [0.075, 0.062],
+    shoe: (pal) => pal.skin,
+    torso(ctx, J, pal, ol, f) {
+      const { hip, u, D } = J, H = D.H * J.bulk, n = perp(u), form = f && f.def.form;
+      const shape = torsoShape(J, 0.09, 0.11);
+      if (form === 'monster') { // shaggy mane of fur around the huge torso
+        const c = add(hip, u, D.torso * 0.6);
+        ctx.fillStyle = shade(pal.fur, -0.2); ctx.strokeStyle = OUT; ctx.lineWidth = ol * 2;
+        ctx.beginPath();
+        for (let i = 0; i <= 18; i++) { const a = (i / 18) * Math.PI * 2, r = (i % 2 ? 0.2 : 0.26) * H; ctx.lineTo(c[0] + Math.cos(a) * r, c[1] + Math.sin(a) * r * 1.2); }
+        ctx.closePath(); ctx.stroke(); ctx.fill();
+      }
+      poly(ctx, shape, pal.fur, OUT, ol * 2);
+      const belly = add(add(hip, u, D.torso * 0.45), n, 0.03 * H);
+      ell(ctx, belly[0], belly[1], 0.06 * H, D.torso * 0.32, 0, pal.furLight);
+      poly(ctx, [add(hip, n, -0.1 * H), add(hip, n, 0.095 * H), add(add(hip, u, D.torso * 0.16), n, 0.095 * H), add(add(hip, u, D.torso * 0.16), n, -0.1 * H)], pal.shorts, OUT, ol);
+      ell(ctx, hip[0], hip[1] - 0.01 * H, 0.1 * H, 0.07 * H, 0, pal.shorts);
+    },
+  };
+
   function torsoShape(J, wh, ws) {
-    const { hip, neck, u, D } = J, H = D.H, n = perp(u);
+    const { hip, neck, u, D } = J, H = D.H * J.bulk, n = perp(u);
     const chest = add(hip, u, D.torso * 0.62);
     const pts = [];
     const push = (p) => pts.push(p);
@@ -277,11 +322,20 @@
       stroke(ctx, [h, h2], 0.03 + ol * 2, OUT); stroke(ctx, [h, h2], 0.03, c[0]);
     });
   }
-  function staff(ctx, J, pal, ol, deg) {
-    const d = limbDir(deg), h = J.haF;
+  function staff(ctx, J, pal, ol, deg, hand = 'F', kind = 'climatact') {
+    const d = limbDir(deg), h = J['ha' + hand];
     const a = [h[0] - d[0] * 0.5, h[1] - d[1] * 0.5], b = [h[0] + d[0] * 0.6, h[1] + d[1] * 0.6];
     ctx.lineCap = 'butt';
     stroke(ctx, [a, b], 0.03 + ol * 2, OUT); stroke(ctx, [a, b], 0.03, pal.staff);
+    if (kind === 'kabuto') { // Usopp's Kabuto: a staff with a slingshot fork and rubber band on top
+      const n = perp(d), f1 = add(add(b, n, 0.09), d, 0.16), f2 = add(add(b, n, -0.09), d, 0.16);
+      ctx.lineCap = 'round';
+      stroke(ctx, [b, f1], 0.028 + ol * 2, OUT); stroke(ctx, [b, f2], 0.028 + ol * 2, OUT);
+      stroke(ctx, [b, f1], 0.028, pal.staff); stroke(ctx, [b, f2], 0.028, pal.staff);
+      stroke(ctx, [f1, add(b, d, 0.05), f2], 0.008, '#d6b24a');
+      stroke(ctx, [add(h, d, -0.12), add(h, d, 0.12)], 0.042, '#d9c89a');
+      return;
+    }
     for (const t of [-0.3, 0.05, 0.38]) { const p = [h[0] + d[0] * t, h[1] + d[1] * t]; stroke(ctx, [add(p, d, -0.02), add(p, d, 0.02)], 0.04, '#e9e4d0'); }
     ctx.lineCap = 'round';
     circle(ctx, b[0], b[1], 0.025, '#e9e4d0', OUT, ol);
@@ -301,7 +355,8 @@
     J.t = f.t || 0;
 
     const armCols = st.arm(pal), legCols = st.leg(pal);
-    const armW = st.armW.map((w) => w * H * 0.8), legW = st.legW.map((w) => w * H * 0.72);
+    const bulk = def.bulk || 1;
+    const armW = st.armW.map((w) => w * H * 0.8 * bulk), legW = st.legW.map((w) => w * H * 0.72 * bulk);
     const fist = (f.fistScale || 1);
     const drawArm = (el, ha, side, dark) => {
       const cols = dark ? armCols.map((c) => shade(c, -0.18)) : armCols;
@@ -310,7 +365,7 @@
       const w2 = e > 0.2 ? armW[1] * clamp(1 - e * 0.06, 0.65, 1) : armW[1];
       limb(ctx, [J.sh, el, ha], [armW[0], w2], cols, ol);
       if (st.cuff) { const d = norm(sub(ha, el)); stroke(ctx, [add(ha, d, -0.05), add(ha, d, -0.02)], armW[1] * 1.25, '#fafafa'); }
-      const fs = (side === 'F' ? fist : 1) * 0.034 * H;
+      const fs = (side === 'F' ? fist : 1) * 0.034 * H * Math.sqrt(bulk);
       circle(ctx, ha[0], ha[1], fs, dark ? shade(pal.skin, -0.12) : pal.skin, OUT, ol * 2);
       if (fs > 0.1) { // Gear Third giant fist knuckles
         ctx.lineWidth = ol * 2; ctx.strokeStyle = OUT;
@@ -335,7 +390,8 @@
     if (f.flags.swordsOut && f.flags.swordB) katana(ctx, J.haB[0], J.haB[1], P.swB ?? P.aB2 + 70, 'B', ol, 1, f.flags.bladeGlow);
     drawArm(J.elB, J.haB, 'B', true);
     drawLeg(J.knB, J.ftB, true, P.lB2);
-    if (def.id === 'nami' && P.staff != null && f.flags.staffBack) staff(ctx, J, pal, ol, P.staff);
+    const staffHand = def.staffHand || 'F';
+    if (def.weapon && P.staff != null && staffHand === 'B') staff(ctx, J, pal, ol, P.staff, 'B', def.weapon);
     st.torso(ctx, J, pal, ol, f);
     drawLeg(J.knF, J.ftF, false, P.lF2);
     // head
@@ -347,7 +403,7 @@
     drawHead(ctx, def, pal, f.expr, { blink: f.blink, ol: ol / r, flags: f.flags, t: f.t || 0, r });
     ctx.restore();
     // near side
-    if (def.id === 'nami' && P.staff != null && !f.flags.staffBack) staff(ctx, J, pal, ol, P.staff);
+    if (def.weapon && P.staff != null && staffHand === 'F') staff(ctx, J, pal, ol, P.staff, 'F', def.weapon);
     drawArm(J.elF, J.haF, 'F', false);
     if (f.flags.swordsOut && f.flags.swordF) katana(ctx, J.haF[0], J.haF[1], P.swF ?? P.aF2 + 70, 'F', ol, 1, f.flags.bladeGlow);
     if (def.id === 'zoro' && !f.flags.bandana) { // bandana tied round the upper arm
@@ -379,7 +435,14 @@
     const ol = o.ol || 0.12, id = def.id, fl = o.flags || {};
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     // hair behind the head
+    if (id === 'chopper') { reindeerHead(ctx, def, pal, expr, o, ol); return; }
     if (id === 'luffy') blob(ctx, pal.hair, ol, [[-0.2, 1.05], [-1.0, 0.75], [-1.32, 0.35], [-1.02, 0.12], [-1.28, -0.2], [-0.9, -0.22], [-1.0, -0.55], [-0.6, -0.3], [-0.3, 0.2]]);
+    if (id === 'usopp') { // big curly mop of hair behind the head
+      ctx.fillStyle = pal.hair; ctx.strokeStyle = OUT; ctx.lineWidth = ol * 2;
+      const curls = [[-0.2, 1.05, 0.42], [-0.7, 0.85, 0.42], [-1.05, 0.45, 0.4], [-1.15, 0.0, 0.38], [-1.0, -0.45, 0.36], [-0.65, -0.75, 0.32], [0.3, 1.0, 0.4]];
+      for (const [x, y, r] of curls) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke(); }
+      for (const [x, y, r] of curls) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
+    }
     if (id === 'nami') blob(ctx, shade(pal.hair, -0.08), ol, [[0.2, 1.1], [-0.9, 0.9], [-1.25, 0.1], [-1.35, -1.2], [-1.0, -2.2], [-0.55, -1.6], [-0.35, -0.6], [0.2, 0.2]], true);
     if (id === 'sanji') blob(ctx, pal.hair, ol, [[-0.1, 1.1], [-1.0, 0.7], [-1.1, -0.1], [-0.8, -0.5], [-0.5, 0.1]], true);
     // skull + jaw
@@ -438,6 +501,16 @@
         stroke(ctx, [[mx + 0.08, my - 0.02], [mx + 0.2, my]], 0.12, '#d6a45a');
         circle(ctx, mx + 0.64, my + 0.1, 0.055, (o.t || 0) % 40 < 20 ? '#ff6a2a' : '#ffae42');
       }
+    } else if (id === 'usopp') {
+      // long nose — his signature
+      const nose = () => { ctx.beginPath(); ctx.moveTo(0.5, -0.12); ctx.quadraticCurveTo(1.2, -0.2, 1.78, -0.28); ctx.arc(1.78, -0.33, 0.06, Math.PI / 2, -Math.PI / 2, true); ctx.quadraticCurveTo(1.2, -0.38, 0.55, -0.44); ctx.closePath(); };
+      nose(); ctx.lineWidth = ol * 2; ctx.strokeStyle = OUT; ctx.stroke(); ctx.fillStyle = pal.skin; ctx.fill();
+      // bandana band + goggles pushed up on the forehead
+      ctx.beginPath(); ctx.moveTo(-0.96, 0.32); ctx.bezierCurveTo(-0.5, 0.62, 0.5, 0.62, 1.0, 0.36); ctx.lineTo(0.98, 0.58); ctx.bezierCurveTo(0.5, 0.86, -0.5, 0.86, -0.92, 0.56); ctx.closePath();
+      ctx.lineWidth = ol * 1.5; ctx.stroke(); ctx.fillStyle = pal.band; ctx.fill();
+      for (const [x, r] of [[0.12, 0.2], [0.64, 0.16]]) { circle(ctx, x, 0.66, r, '#5a5a62', OUT, ol * 1.5); circle(ctx, x, 0.66, r * 0.7, pal.goggles); circle(ctx, x - r * 0.25, 0.72, r * 0.18, 'rgba(255,255,255,0.7)'); }
+      ctx.fillStyle = pal.hair;
+      for (const [x, y, r] of [[-0.3, 1.02, 0.3], [0.2, 1.08, 0.3], [0.62, 0.95, 0.26]]) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.lineWidth = ol * 2; ctx.stroke(); ctx.fill(); }
     } else if (id === 'nami') {
       ctx.beginPath(); ctx.moveTo(-0.96, 0.05); ctx.bezierCurveTo(-1.05, 1.4, 1.05, 1.38, 1.02, 0.3);
       ctx.lineTo(0.86, 0.12); ctx.lineTo(0.76, 0.4); ctx.lineTo(0.56, 0.1); ctx.lineTo(0.42, 0.42); ctx.lineTo(0.22, 0.08); ctx.lineTo(0.08, 0.42);
@@ -445,6 +518,38 @@
       ctx.lineWidth = ol * 2; ctx.strokeStyle = OUT; ctx.stroke(); ctx.fillStyle = pal.hair; ctx.fill();
       ctx.fillStyle = shade(pal.hair, 0.3); ctx.beginPath(); ctx.ellipse(-0.05, 0.95, 0.4, 0.1, 0.15, 0, Math.PI * 2); ctx.fill();
     }
+  }
+
+  // Chopper: round reindeer face, blue nose, antlers and the pink top hat with the white cross.
+  function reindeerHead(ctx, def, pal, expr, o, ol) {
+    const form = def.form || 'brain', fur = pal.fur;
+    const furPal = Object.assign({}, pal, { skin: fur });
+    // antlers behind the hat
+    ctx.lineCap = 'round';
+    for (const s of [-1, 1]) {
+      const bx = s < 0 ? -0.55 : 0.45;
+      const pts = [[bx, 0.75], [bx + s * 0.35, 1.35], [bx + s * 0.6, 1.9]];
+      const tines = [[pts[1], [pts[1][0] + s * 0.4, pts[1][1] + 0.15]], [[bx + s * 0.48, 1.62], [bx + s * 0.25, 2.0]]];
+      stroke(ctx, pts, 0.16 + ol * 2, OUT); for (const t of tines) stroke(ctx, t, 0.12 + ol * 2, OUT);
+      stroke(ctx, pts, 0.16, pal.antler); for (const t of tines) stroke(ctx, t, 0.12, pal.antler);
+    }
+    if (form === 'monster') blob(ctx, shade(fur, -0.2), ol, [[-1.3, 0.6], [-1.6, 0.0], [-1.35, -0.7], [-0.6, -1.3], [0.3, -1.2], [0.9, -0.9], [0.2, 0.2]], true);
+    // ears
+    for (const [x, y, r] of [[-0.95, 0.35, 0.5], [0.85, 0.45, -0.3]]) { ctx.save(); ctx.translate(x, y); ctx.rotate(r); ell(ctx, 0, 0, 0.18, 0.38, 0, fur, OUT, ol * 1.5); ell(ctx, 0, 0, 0.08, 0.24, 0, pal.furLight); ctx.restore(); }
+    // face
+    ell(ctx, 0.05, -0.05, 1.02, 0.95, 0, fur, OUT, ol * 2);
+    ell(ctx, 0.42, -0.5, 0.6, 0.42, 0, pal.furLight);
+    face(ctx, 'chopper', furPal, form === 'monster' && expr !== 'hurt' && expr !== 'ko' ? 'intense' : expr, o, ol);
+    // big blue nose
+    circle(ctx, 0.92, -0.28, 0.2, pal.nose, OUT, ol * 1.5); circle(ctx, 0.86, -0.22, 0.06, 'rgba(255,255,255,0.7)');
+    // pink top hat with the white cross
+    ell(ctx, 0.0, 0.72, 1.12, 0.22, 0, pal.hat, OUT, ol * 2);
+    ctx.beginPath(); ctx.moveTo(-0.62, 0.74); ctx.lineTo(-0.66, 1.78); ctx.quadraticCurveTo(0, 1.92, 0.66, 1.78); ctx.lineTo(0.62, 0.74); ctx.closePath();
+    ctx.lineWidth = ol * 2; ctx.strokeStyle = OUT; ctx.stroke(); ctx.fillStyle = pal.hat; ctx.fill();
+    ctx.fillStyle = shade(pal.hat, -0.15); ctx.fillRect(-0.64, 0.78, 1.28, 0.16);
+    ctx.save(); ctx.translate(0.05, 1.3); ctx.fillStyle = pal.hatX;
+    for (const a of [0.78, -0.78]) { ctx.save(); ctx.rotate(a); ctx.fillRect(-0.3, -0.07, 0.6, 0.14); ctx.restore(); }
+    ctx.restore();
   }
 
   // Closed smooth blob through points (used for hair masses).
@@ -500,7 +605,8 @@
     if (id === 'zoro' && expr === 'neutral') { eye = 'narrow'; tilt = 0.3; }
     if (id === 'nami' && expr === 'smug') eye = 'wink';
     const eyeCol = pal.eye || '#231a1a';
-    const eyes = id === 'sanji' ? [[FACE.farEye, 0.72, true]] : [[FACE.nearEye, 1, false], [FACE.farEye, 0.72, true]];
+    const big = id === 'chopper' ? 1.35 : 1;
+    const eyes = id === 'sanji' ? [[FACE.farEye, 0.72, true]] : [[FACE.nearEye, 1 * big, false], [FACE.farEye, 0.72 * big, true]];
     for (const [p, w, far] of eyes) drawEye(ctx, p[0], p[1], w, eye, eyeCol, ol, id, far, pal.skin);
     // brows
     for (const [p, w] of eyes) {
@@ -516,7 +622,7 @@
     }
     // nose
     ctx.lineWidth = ol * 0.9; ctx.strokeStyle = shade(pal.skin, -0.38);
-    ctx.beginPath(); ctx.moveTo(0.56, -0.2); ctx.lineTo(0.63, -0.37); ctx.lineTo(0.55, -0.4); ctx.stroke();
+    if (id !== 'usopp' && id !== 'chopper') { ctx.beginPath(); ctx.moveTo(0.56, -0.2); ctx.lineTo(0.63, -0.37); ctx.lineTo(0.55, -0.4); ctx.stroke(); }
     drawMouth(ctx, mouth, ol, id, pal);
   }
 

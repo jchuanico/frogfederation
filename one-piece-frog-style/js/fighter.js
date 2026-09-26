@@ -26,6 +26,7 @@
     }
 
     reset(x, facing) {
+      if (this.def.baseDef) this.def = this.def.baseDef; // Chopper shrinks back when he leaves the screen
       Object.assign(this, {
         x, y: 0, vx: 0, vy: 0, facing, air: false, state: 'idle', st: 0,
         move: null, mt: 0, hitstun: 0, blockstun: 0, invuln: 0, airJumps: this.def.airJumps,
@@ -33,7 +34,7 @@
         fistScale: 1, expr: 'neutral', exprT: 0, blink: false, blinkT: 120 + Math.random() * 180,
         trail: [], hitList: new Map(), connected: false, hitCount: 0, kd: false, groundBounce: false, wallBounce: false,
         lowHit: false, superJ: false, flipT: 0, dashDir: 0, walkPh: 0, counterArmed: false, alpha: 1, flashT: 0, lastTrail: 0,
-        comboTaken: 0, motionBonus: false, fire: false,
+        comboTaken: 0, motionBonus: false, fire: false, burn: 0, formHits: 0, bladeTrail: [],
       });
       this.flags = Object.assign({}, this.def.flags, { bandana: this.flags && this.flags.bandana });
       this.buildPose();
@@ -43,18 +44,20 @@
     get alive() { return this.hp > 0; }
     get onScreen() { return this.role !== 'bench'; }
     get grounded() { return !this.air; }
-    get crouching() { return this.state === 'crouch' || (this.state === 'blockstun' && this.crouchBlock) || (this.state === 'attack' && this.move && this.move.key[0] === 'c'); }
+    get crouching() { return this.state === 'crouch' || (this.state === 'blockstun' && this.crouchBlock) || (this.state === 'attack' && this.move && (this.move.key === 'cL' || this.move.key === 'cH')); }
 
     actionable() {
       const s = this.state;
       return s === 'idle' || s === 'walk' || s === 'crouch' || s === 'air' || s === 'guard' || (s === 'dash' && this.st > 5) || (s === 'land' && this.st > 2);
     }
 
-    say(text) { OP.Audio.say(text, { pitch: this.def.voice.pitch, rate: this.def.voice.rate, voiceIdx: this.def.voice.pitch > 1.2 ? 1 : 0 }); }
+    say(en, jp) { const v = this.def.voice; OP.Audio.speak({ en, jp, pitch: v.pitch, rate: v.rate, gender: v.gender }); }
     setExpr(e, t) { this.expr = e; this.exprT = t || 0; }
 
     // ---------- moves ----------
     startMove(key, m, bonus) {
+      // Chopper: in Heavy/Monster Point his neutral special becomes Heavy Gong; no Monster Point while already a monster
+      if (this.def.form && this.def.form !== 'brain') { if (key === 'sN') key = 'sN2'; if (key === 'X' && this.def.form === 'monster') return false; }
       const mv = this.def.moves[key];
       if (!mv) return false;
       if (this.air && !mv.air) return false;
@@ -83,10 +86,21 @@
       if (t === Math.max(0, mv.startup - 3) && mv.sfx) OP.Audio.sfx(mv.sfx);
       if (mv.proj && t === mv.proj.at) m.spawnProjectile(this, mv);
       if (mv.teleport === t) m.teleportBehind(this);
+      if (mv.transform && t === mv.transform.at) this.setForm(mv.transform.form, m);
       if (mv.sheathe && t === mv.sheathe && this.connected) OP.Audio.sfx('sheathe');
       if (mv.fist) this.fistScale = t >= mv.startup - 6 && t < mv.startup + mv.active + 10 ? approach(this.fistScale, mv.fist, 1.2) : approach(this.fistScale, 1, 0.8);
       this.flags.bladeGlow = mv.glow && t < mv.startup + mv.active ? 1 : 0;
       if (mv.teleport) this.alpha = t < mv.teleport ? clamp(1 - (t - 3) / 9, 0.08, 1) : clamp((t - mv.teleport) / 10, 0.08, 1);
+    }
+
+    // Chopper's Rumble Ball forms: swap to the form's body (height, mass, hit/hurtbox scale, damage).
+    setForm(form, m) {
+      const d = OP.ChopperForms && OP.ChopperForms[form];
+      if (!d || d === this.def) return;
+      const grow = d.height > this.def.height;
+      this.def = d; this.formHits = 0;
+      this.buildPose();
+      if (m) m.transformFx(this, grow);
     }
 
     advanceMove(m) {
@@ -286,7 +300,7 @@
       const rest = this.def.restitution;
       if (this.state === 'hitstun' || this.state === 'knockdown' || this.state === 'ko') {
         if (this.groundBounce && impact > 3) {
-          this.groundBounce = false; this.vy = Math.max(5.5, impact * 0.75); this.vx *= 0.6;
+          this.groundBounce = false; this.vy = this.bounceVy || Math.max(5.5, impact * 0.75); this.vx *= 0.6; this.bounceVy = 0;
           m.shake(5); m.dust(this.x, 0, 1.4); OP.Audio.sfx(this.def.id === 'luffy' ? 'bounce' : 'hitM');
           return;
         }
@@ -361,12 +375,25 @@
           const b = Math.sin(this.t * 0.07);
           const s0 = Dr.solve({}, base);
           P = Object.assign({}, s0, { hipH: s0.hipH + b * 0.005, aF2: s0.aF2 + b * 3, aB2: s0.aB2 + b * 2, lean: s0.lean + b * 0.8 });
+          if (def.id === 'usopp' && this.hp < this.maxHp * 0.35) { const k = Math.sin(this.t * 1.4) * 7; P.lF2 += k; P.lB2 -= k; } // knees knocking
         }
       }
+      // Monster Point hunches forward like a beast, bringing its huge reach down to human height
+      if (def.form === 'monster' && s !== 'knockdown' && s !== 'ko') P = Object.assign({}, P, { lean: P.lean + 22, head: P.head - 12 });
       // hit shake
       if ((s === 'hitstun' || s === 'blockstun') && this.flashT > 0) P = Object.assign({}, P, { hx: (P.hx || 0) + (this.t % 2 ? 0.012 : -0.012) });
       this.P = P;
       this.J = Dr.joints(def, P, this.stretch);
+      // sword swing trail (Zoro): hand→tip positions for the last few frames of the swing
+      const mv = this.state === 'attack' ? this.move : null;
+      if (mv && mv.bladeTrail && this.mt >= mv.startup - 4 && this.mt < mv.startup + mv.active + 2) {
+        const e = {};
+        for (const sd of mv.bladeTrail === 'both' ? ['F', 'B'] : [mv.bladeTrail]) {
+          const h = this.J['ha' + sd], d = limbDir(P['sw' + sd] ?? P['a' + sd + '2'] + 70);
+          e[sd] = [this.toWorld([h[0] + d[0] * 0.3, h[1] + d[1] * 0.3]), this.toWorld([h[0] + d[0] * 0.86, h[1] + d[1] * 0.86])];
+        }
+        this.bladeTrail.push(e); if (this.bladeTrail.length > 7) this.bladeTrail.shift();
+      } else if (this.bladeTrail.length) this.bladeTrail.shift();
       // afterimage trail
       const trailing = (this.state === 'attack' && this.move.trail && this.mt < this.move.startup + this.move.active) || this.state === 'dash' || this.state === 'tagin';
       if (trailing && this.t - this.lastTrail >= 2) { this.trail.push({ x: this.x, y: this.y, facing: this.facing, J: this.J, life: 12 }); this.lastTrail = this.t; if (this.trail.length > 6) this.trail.shift(); }
@@ -381,7 +408,7 @@
     hurtBoxes() {
       if (!this.onScreen || this.invuln > 0 || this.state === 'ko' || (this.state === 'tagout' && this.st > 8)) return [];
       if (this.move && this.move.invuln && this.mt >= this.move.invuln[0] && this.mt < this.move.invuln[1]) return [];
-      const J = this.J, H = this.def.height;
+      const J = this.J, H = this.def.height * (this.def.bulk || 1); // chubby/muscular bodies are wider
       const out = [
         this.capL(J.head, J.head, J.D.headR * 1.02, 'head'),
         this.capL(J.hip, J.neck, 0.078 * H, 'torso'),
@@ -400,33 +427,39 @@
       const mv = this.move, t = this.mt;
       if (mv.noBox || !mv.box || t < mv.startup || t >= mv.startup + mv.active) return [];
       const J = this.J, b = mv.box, out = [];
-      if (b.seg) out.push(this.capL(J[b.seg[0]], J[b.seg[1]], b.r));
+      const r = b.r * (this.def.boxScale || 1);
+      if (b.seg) out.push(this.capL(J[b.seg[0]], J[b.seg[1]], r));
+      if (b.segs) for (const sg of b.segs) out.push(this.capL(J[sg[0]], J[sg[1]], r));
       if (b.sword) {
         for (const s of b.sword === 'both' ? ['F', 'B'] : [b.sword]) {
           const h = J['ha' + s], ang = this.P['sw' + s] ?? this.P['a' + s + '2'] + 70, d = limbDir(ang);
-          out.push(this.capL([h[0] + d[0] * 0.12, h[1] + d[1] * 0.12], [h[0] + d[0] * 0.86, h[1] + d[1] * 0.86], b.r));
+          out.push(this.capL([h[0] + d[0] * 0.12, h[1] + d[1] * 0.12], [h[0] + d[0] * 0.86, h[1] + d[1] * 0.86], r));
         }
       }
       if (b.staff) {
-        const h = J.haF, d = limbDir(this.P.staff);
+        const h = J['ha' + (this.def.staffHand || 'F')], d = limbDir(this.P.staff);
         const a = b.staff === 'tip' ? 0.2 : -0.5;
-        out.push(this.capL([h[0] + d[0] * a, h[1] + d[1] * a], [h[0] + d[0] * 0.64, h[1] + d[1] * 0.64], b.r));
+        out.push(this.capL([h[0] + d[0] * a, h[1] + d[1] * a], [h[0] + d[0] * 0.64, h[1] + d[1] * 0.64], r));
       }
       if (b.custom === 'gatling') {
         const s = J.sh, reach = 0.5 + Math.max(this.stretch.aF, 0.3) + 0.4;
-        out.push(this.capL([s[0] + 0.2, s[1]], [s[0] + reach, s[1] - 0.05], b.r));
+        out.push(this.capL([s[0] + 0.2, s[1]], [s[0] + reach, s[1] - 0.05], r));
       }
       if (b.custom === 'tableKick') {
         const h = J.hip;
-        out.push(this.capL([h[0] - 0.55, h[1] + 0.25], [h[0] + 0.55, h[1] + 0.25], b.r));
+        out.push(this.capL([h[0] - 0.55, h[1] + 0.25], [h[0] + 0.55, h[1] + 0.25], r));
       }
       return out.map((c) => ({ c, mv }));
     }
 
+    // Pushbox. Airborne bodies use a shorter box that starts above the feet, so a jump that
+    // clears the opponent's shoulders passes over (cross-ups) instead of sliding off their head.
     pushBox() {
-      const hw = 0.2 * (this.def.height / 1.75);
+      const s = this.def.height / 1.75;
+      const hw = 0.2 * s * Math.sqrt(this.def.bulk || 1);
+      if (this.air && this.state !== 'knockdown' && this.state !== 'ko') return { x: this.x, hw, y0: this.y + 0.35 * s, y1: this.y + 1.35 * s };
       const top = this.state === 'knockdown' || this.state === 'ko' ? 0.35 : this.crouching ? 1.0 : 1.55;
-      return { x: this.x, hw, y0: this.y, y1: this.y + top };
+      return { x: this.x, hw, y0: this.y, y1: this.y + top * s };
     }
   }
 

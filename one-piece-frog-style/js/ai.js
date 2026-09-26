@@ -13,6 +13,8 @@
     zoro: { far: ['sN', 'sN', 'approach'], mid: ['sF', 'H', 'jumpin'], close: ['comboA', 'comboB', 'counter'], anti: 'sU' },
     sanji: { far: ['approach', 'dash'], mid: ['sF', 'H', 'jumpin', 'sN'], close: ['comboA', 'comboB', 'comboC'], anti: 'sD' },
     nami: { far: ['sN', 'sF', 'sN'], mid: ['sF', 'H', 'sN'], close: ['comboA', 'teleport', 'comboB'], anti: 'sU' },
+    usopp: { far: ['sN', 'sF', 'sN', 'sD'], mid: ['sN', 'H', 'sD', 'jumpin'], close: ['comboA', 'comboB', 'comboC'], anti: 'sU' },
+    chopper: { far: ['sN', 'approach', 'dash'], mid: ['sF', 'H', 'jumpin', 'sN'], close: ['comboA', 'comboB', 'comboC'], anti: 'sU' },
   };
 
   class AI {

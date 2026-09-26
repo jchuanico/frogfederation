@@ -371,19 +371,50 @@
   }
 
   // ---------- spoken callouts ----------
-  let voices = [];
-  function loadVoices() { try { voices = speechSynthesis.getVoices().filter((v) => /^en/i.test(v.lang)); } catch (e) { voices = []; } }
+  // Browser speech voices. Character lines prefer a Japanese voice speaking the Japanese
+  // move name (anime-style), picking the most natural-sounding voice the device offers.
+  let voicesEn = [], voicesJa = [];
+  const MALE = /otoya|hattori|ichiro|keita|daichi|naoki|takumi|kenji|male|男/i;
+  const quality = (v) => (/natural|neural|premium|enhanced|siri|online/i.test(v.name) ? 4 : 0) + (/google/i.test(v.name) ? 2 : 0) + (v.localService ? 0 : 1);
+  function loadVoices() {
+    try {
+      const all = speechSynthesis.getVoices();
+      voicesJa = all.filter((v) => /^ja/i.test(v.lang)).sort((a, b) => quality(b) - quality(a));
+      voicesEn = all.filter((v) => /^en/i.test(v.lang)).sort((a, b) => quality(b) - quality(a));
+    } catch (e) { voicesJa = voicesEn = []; }
+  }
   if ('speechSynthesis' in window) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
-  function say(text, o = {}) {
-    if (!OP.settings.voice || !('speechSynthesis' in window) || !text) return;
+  function pickVoice(list, gender) {
+    if (!list.length) return null;
+    const want = list.filter((v) => (gender === 'm') === MALE.test(v.name));
+    return (want.length ? want : list)[0];
+  }
+  // o: { jp, en, pitch, rate, gender, announcer }
+  function speak(o) {
+    if (!OP.settings.voice || !('speechSynthesis' in window)) return;
     try {
       speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      u.pitch = o.pitch ?? 1; u.rate = o.rate ?? 1.1; u.volume = Math.min(1, (o.vol ?? 1) * OP.settings.sfx + 0.1);
-      if (voices.length) u.voice = voices[o.voiceIdx % voices.length || 0] || voices[0];
-      speechSynthesis.speak(u);
-    } catch (e) { /* ignore */ }
+      const useJa = o.jp && voicesJa.length;
+      const text = useJa ? o.jp : o.en;
+      if (!text) return;
+      const voice = pickVoice(useJa ? voicesJa : voicesEn, o.gender);
+      // Deliver "technique name… FINISHER!" in two beats: a quicker lead-in, then the
+      // punchline slower, louder and higher — closer to an anime shout than a flat read.
+      const parts = text.split(/…|\.\.\./).map((t) => t.trim()).filter(Boolean);
+      parts.forEach((part, i) => {
+        const last = i === parts.length - 1 && parts.length > 1;
+        const u = new SpeechSynthesisUtterance(part);
+        if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = useJa ? 'ja-JP' : 'en-US';
+        u.pitch = Math.min(2, (o.pitch ?? 1) * (last ? 1.12 : 1));
+        u.rate = (o.rate ?? 1.05) * (last ? 0.9 : 1.08);
+        u.volume = Math.min(1, OP.settings.sfx + 0.2);
+        speechSynthesis.speak(u);
+      });
+    } catch (e) { /* speech is best-effort */ }
   }
+  // Announcer / legacy calls: plain English line.
+  function say(text, o = {}) { speak({ en: text, pitch: o.pitch, rate: o.rate, gender: 'm' }); }
+  const hasJapaneseVoice = () => voicesJa.length > 0;
 
-  OP.Audio = { init, playMusic, stopMusic, setTempo, sfx, say, applyVolumes, get ready() { return !!ctx; } };
+  OP.Audio = { init, playMusic, stopMusic, setTempo, sfx, say, speak, hasJapaneseVoice, applyVolumes, get ready() { return !!ctx; } };
 })(window.OP);

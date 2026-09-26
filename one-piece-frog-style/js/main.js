@@ -245,7 +245,7 @@
     pick(side, i) {
       if (this.picks[side].includes(i)) { OP.Audio.sfx('back'); return; }
       this.picks[side].push(i); OP.Audio.sfx('confirm');
-      const c = OP.Roster[i]; OP.Audio.say(c.short, { pitch: c.voice.pitch, rate: 1 });
+      const c = OP.Roster[i]; OP.Audio.speak({ en: c.short, jp: c.quoteJp, pitch: c.voice.pitch, rate: c.voice.rate, gender: c.voice.gender });
     },
     launch() {
       const ids = this.picks.map((p) => p.map((i) => OP.Roster[i].id));
@@ -261,7 +261,7 @@
       backdrop(0.55);
       text(ctx, this.mode === 'training' ? 'TRAINING — PICK YOUR CREW' : 'CHOOSE YOUR CREW', W / 2, 62, 54, '#ffe14d', 'center');
       text(ctx, 'Pick two: first is on point, second is your partner', W / 2, 94, 22, '#ffffff', 'center');
-      const R = OP.Roster, cw = 176, gap = 18, x0 = W / 2 - (R.length * cw + (R.length - 1) * gap) / 2, y0 = 300;
+      const R = OP.Roster, cw = 150, gap = 12, x0 = W / 2 - (R.length * cw + (R.length - 1) * gap) / 2, y0 = 300;
       R.forEach((c, i) => {
         const x = x0 + i * (cw + gap);
         const hov = this.cur.map((v, s) => v === i && (s === 0 || this.mode === 'versus' || this.picks[0].length === 2));
@@ -272,9 +272,9 @@
         ctx.strokeRect(x, y0, cw, 230);
         ctx.restore();
         const fake = { def: c, pal: c.pal[0], expr: hov[0] || hov[1] ? 'grin' : 'neutral', flags: Object.assign({}, c.flags), t: T, blink: T % 200 < 6, alive: true, team: { side: 0 } };
-        portrait(ctx, fake, x + cw / 2, y0 + 82, 66, false);
-        text(ctx, c.short, x + cw / 2, y0 + 186, 34, '#ffffff', 'center');
-        text(ctx, c.title.toUpperCase(), x + cw / 2, y0 + 214, 18, '#ffe14d', 'center');
+        portrait(ctx, fake, x + cw / 2, y0 + 82, 60, false);
+        text(ctx, c.short, x + cw / 2, y0 + 186, 32, '#ffffff', 'center');
+        text(ctx, c.title.toUpperCase(), x + cw / 2, y0 + 214, 15, '#ffe14d', 'center');
         this.picks.forEach((p, s) => p.forEach((pi, k) => {
           if (pi === i) text(ctx, (s === 0 ? 'P1' : this.mode === 'versus' ? 'P2' : 'CPU') + (k === 0 ? ' ★' : ' ✦'), x + (s === 0 ? 8 : cw - 8), y0 + 24 + k * 22, 20, s === 0 ? '#ff7070' : '#70b8ff', s === 0 ? 'left' : 'right');
         }));
@@ -284,7 +284,7 @@
       for (const s of [0, 1]) {
         const c = R[this.cur[s]];
         if (s === 1 && this.mode !== 'versus' && this.picks[0].length < 2) continue;
-        this.preview(c, s === 0 ? 130 : W - 130, 580, s === 0 ? 1 : -1, s && this.picks[0].includes(this.cur[1]) ? 1 : 0);
+        this.preview(c, s === 0 ? 78 : W - 78, 600, s === 0 ? 1 : -1, s && this.picks[0].includes(this.cur[1]) ? 1 : 0);
         const crew = this.picks[s].map((i) => R[i].short).join(' + ') || '—';
         text(ctx, (s === 0 ? 'P1: ' : this.mode === 'versus' ? 'P2: ' : 'CPU: ') + crew, s === 0 ? 30 : W - 30, 140, 28, s === 0 ? '#ff8080' : '#80c0ff', s === 0 ? 'left' : 'right');
       }
@@ -298,7 +298,7 @@
       f.t = T; f.facing = facing; f.x = 0; f.y = 0; f.state = 'idle'; f.expr = 'determined';
       if (def.id === 'zoro') f.flags.bandana = true;
       f.buildPose();
-      ctx.save(); ctx.translate(x, y); ctx.scale(120, -120);
+      ctx.save(); ctx.translate(x, y); ctx.scale(100, -100);
       OP.Draw.drawFighter(ctx, f, f.J, {});
       ctx.restore();
     },

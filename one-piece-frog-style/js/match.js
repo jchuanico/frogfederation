@@ -10,7 +10,6 @@
   const CAM_MARGIN_X = 0.6, CAM_MARGIN_TOP = 0.35;
   const CAM_ZMIN = W / 13, CAM_ZMAX = W / 5.8; // widest ≈13 m view, closest ≈5.8 m
   const JUGGLE_CEIL = 4.2;                // metres: highest apex a hit can send someone to
-  const TAG_LINES = { luffy: 'Leave it to me!', zoro: 'Step aside.', sanji: 'Allow me.', nami: 'My turn!' };
 
   class Team {
     constructor(cfg, side, m) {
@@ -90,8 +89,8 @@
     flow() {
       const [a, b] = this.teams;
       if (this.phase === 'intro') {
-        if (this.phaseT === 10) { a.point.say(a.point.def.quote); }
-        if (this.phaseT === 60) { b.point.say(b.point.def.quote); }
+        if (this.phaseT === 10) { a.point.say(a.point.def.quote, a.point.def.quoteJp); }
+        if (this.phaseT === 60) { b.point.say(b.point.def.quote, b.point.def.quoteJp); }
         if (this.phaseT === 125) { this.banner('READY?', '#ffffff', 50, 90); OP.Audio.say('Ready?', { pitch: 0.6, rate: 0.9 }); }
         if (this.phaseT === 180) {
           this.banner('FIGHT!', '#ffe14d', 55, 140); OP.Audio.sfx('don'); OP.Audio.say('Fight!', { pitch: 0.6, rate: 1 });
@@ -115,7 +114,7 @@
         if (this.winner) {
           const w = this.winner.point.alive ? this.winner.point : this.winner.members.find((f) => f.alive);
           if (w && !w.onScreen) { this.bringIn(this.winner, w); }
-          if (w) { w.state = 'win'; w.st = 0; w.move = null; w.setExpr('win'); w.say(w.def.winLine); }
+          if (w) { w.state = 'win'; w.st = 0; w.move = null; w.setExpr('win'); w.say(w.def.winLine, w.def.winJp); }
           const names = this.winner.members.map((f) => f.def.short).join(' & ');
           this.banner(names + ' WIN!', this.winner.side === 0 ? '#ffd23d' : '#7fd6ff', 400, 70);
         } else this.banner('DRAW GAME', '#ffffff', 400, 90);
@@ -165,7 +164,7 @@
       t.pi = 1 - t.pi;
       this.bringIn(t, inn, out.x - out.facing * 0.3, out.facing);
       t.tagCD = 150;
-      OP.Audio.sfx('tag'); inn.say(TAG_LINES[inn.def.id]);
+      OP.Audio.sfx('tag'); inn.say(inn.def.tagLine, inn.def.tagJp);
     }
 
     bringIn(t, inn, x, facing) {
@@ -205,6 +204,7 @@
       }
       // tagged-out partner regains red health
       for (const f of t.members) {
+        if (f.role === 'bench') f.burn = 0;
         if (f.role === 'bench' && f.alive && f.red > 0) { const r = Math.min(f.red, 0.18); f.hp += r; f.red -= r; }
       }
       // combo timeout
@@ -225,7 +225,7 @@
           if (q.role !== 'bench') { t.pendingEntry = 10; return; }
           dead.role = 'bench'; dead.x = -99;
           this.bringIn(t, q);
-          q.say(TAG_LINES[q.def.id]);
+          q.say(q.def.tagLine, q.def.tagJp);
         }
       }
       // dead assist goes home
@@ -351,20 +351,39 @@
       let dmg = props.dmg * scale * (counterHit ? 1.2 : 1) * (att.motionBonus ? 1.1 : 1) * (def.role === 'assist' ? 1.5 : 1);
       if (att.def.id === 'sanji' && def.def.id === 'nami') { dmg *= 0.5; att.setExpr('heart', 70); this.hearts(att); } // he can't bring himself to kick a lady
       if (att.def.id === 'nami' && def.def.id === 'sanji') { def.setExpr('heart', 50); this.hearts(def); }
+      dmg *= att.def.dmgMul || 1; // Chopper's Heavy (+5%) and Monster (+25%) Points
+      const guardPoint = def.move && def.move.armor && def.mt >= def.move.armor.from && def.mt < def.move.armor.to;
+      if (guardPoint) dmg *= def.move.armor.mul;
       dmg = Math.round(dmg);
       def.hp = Math.max(0, def.hp - dmg);
       def.red = Math.min(def.maxHp - def.hp, def.red + dmg * 0.55);
       if (this.mode === 'training' && def.hp < 1) def.hp = 1;
       combo.hits++; combo.dmg += dmg; combo.t = 0; combo.show = 0;
       def.comboTaken++;
+      if (props.burn) this.ignite(def, props.burn);
+      // Chopper's big forms shrink back to Brain Point after two clean hits
+      let reverted = false;
+      if (def.def.formHits && ++def.formHits >= def.def.formHits) { def.setForm('brain', this); reverted = true; }
+      // Super armour (Monster Point) and Guard Point take the damage without flinching
+      if ((def.def.armor || guardPoint) && !reverted && def.hp > 0) {
+        def.flashT = 6; this.hitstop = Math.max(6, props.hitstop - 2); this.shake(2);
+        OP.Audio.sfx(props.hitSfx || 'hitL'); this.spark(contact.x, contact.y, 'block', 1.2, dir);
+        this.popText(guardPoint ? 'GUARD!' : 'ARMOR!', def.x, def.y + def.def.height + 0.3, '#9fe8ff', 0.8);
+        tAtt.meter = Math.min(3000, tAtt.meter + dmg * 0.9); tDef.meter = Math.min(3000, tDef.meter + dmg * 0.5);
+        this.frameData(att, props, false);
+        return;
+      }
 
       const decay = Math.max(0.55, 1 - def.comboTaken * 0.03);
-      const airborne = def.air || props.launch || props.kb[1] > 0.5 || props.kb[1] < -0.5;
+      // A jump-in normal that hits a grounded opponent keeps them grounded (so you can land and
+      // combo) instead of popping them into the air; air-to-air hits still juggle.
+      const jumpIn = !proj && props.air && props.kind === 'normal' && !def.air;
+      const airborne = !jumpIn && (def.air || props.launch || props.kb[1] > 0.5 || props.kb[1] < -0.5);
       def.move = null; def.state = 'hitstun'; def.st = 0; def.counterArmed = false;
       def.hitstun = Math.round(props.hitstun * (airborne ? decay : 1) + (counterHit ? 8 : 0));
       def.lowHit = props.guard === 'low';
-      def.groundBounce = !!props.groundBounce; def.wallBounce = !!props.wallBounce;
-      def.vx = dir * props.kb[0] * massK;
+      def.groundBounce = !jumpIn && !!props.groundBounce; def.wallBounce = !!props.wallBounce; def.bounceVy = props.bounceVy || 0;
+      def.vx = dir * props.kb[0] * (jumpIn ? 0.7 : 1) * massK;
       if (airborne) {
         // light bodies still fly higher, but launches are capped so juggles stay on screen
         let vy = props.kb[1] * Math.min(massK, 1.12);
@@ -374,7 +393,7 @@
         def.vy = vy; def.air = true;
         if (def.y <= 0 && vy > 0) def.y = 0.01;
       } else def.vy = 0;
-      if (props.knockdown && !airborne) { def.vy = 3; def.air = true; def.y = 0.01; }
+      if (props.knockdown && !airborne && !jumpIn) { def.vy = 3; def.air = true; def.y = 0.01; }
       def.flashT = 6; def.setExpr('hurt');
       def.fistScale = 1;
 
@@ -416,9 +435,22 @@
       }
     }
 
+    // Set someone on fire: damage over time for `frames` (Sanji's Hell Memories burns 5 s).
+    ignite(f, frames) {
+      if (!f.burn) this.popText('BURN!', f.x, f.y + f.def.height + 0.35, '#ff9a3d', 0.9);
+      f.burn = Math.max(f.burn || 0, frames); f.burnTick = 0;
+    }
+
+    transformFx(f, grow) {
+      for (let i = 0; i < 18; i++) this.parts.push({ type: 'dust', x: f.x + (Math.random() - 0.5) * f.def.height * 0.6, y: f.y + Math.random() * f.def.height, vx: (Math.random() - 0.5) * 3, vy: Math.random() * 2, life: 30, max: 34, s: 0.2 + Math.random() * 0.25 });
+      this.ring(f.x, f.y + f.def.height * 0.5, grow ? '#ff8fb8' : '#ffffff');
+      this.popText(grow ? 'RUMBLE!' : 'POP!', f.x, f.y + f.def.height + 0.4, grow ? '#ff8fb8' : '#ffffff', grow ? 1.2 : 0.8);
+      OP.Audio.sfx(grow ? 'don' : 'bounce'); this.shake(grow ? 6 : 3);
+    }
+
     // ---------- specials & cut-ins ----------
     onSpecial(f, mv) {
-      if (mv.shout) f.say(mv.shout);
+      if (mv.shout) f.say(mv.shout, mv.jp);
       const hyper = mv.kind === 'hyper';
       OP.Audio.sfx(hyper ? 'flash' : 'special');
       this.ring(f.x, f.y + 1, hyper ? '#ffe14d' : '#ffffff');
@@ -456,7 +488,10 @@
     // ---------- projectiles ----------
     spawnProjectile(f, mv) {
       const p = mv.proj, dir = f.facing, opp = this.opponentOf(f);
-      const base = { team: f.team, owner: f, mv, kind: p.kind, t: 0, life: p.life, hits: p.hits || 1, every: p.every || 0, hitCount: 0, hitList: new Map(), dead: false, dir };
+      // a projectile can carry its own hit properties (e.g. Hell Memories' fire burst)
+      const pm = p.dmg != null ? Object.assign({}, mv, { dmg: p.dmg, kb: p.kb || mv.kb, hitstun: p.hitstun || mv.hitstun, knockdown: !!p.knockdown, burn: p.burn, hits: 1, last: null, don: false, shake: 5, hitstop: 12, launch: false, wallBounce: false }) : mv;
+      const base = { team: f.team, owner: f, mv: pm, kind: p.kind, t: 0, life: p.life, hits: p.hits || 1, every: p.every || 0, hitCount: 0, hitList: new Map(), dead: false, dir,
+        homing: p.homing || 0, grow: p.grow || 0, maxR: p.maxR || 0, explode: !!p.explode, tabasco: !!p.tabasco };
       if (p.lastKb) base.lastProps = { kb: p.lastKb, hitstun: p.lastHitstun || mv.hitstun, knockdown: true, hitstop: 14 };
       const add = (o) => this.proj.push(Object.assign({}, base, o));
       switch (p.kind) {
@@ -482,7 +517,9 @@
         case 'slash': return OP.cap(p.x, p.y - p.len / 2, p.x + p.dir * 0.1, p.y + p.len / 2, p.r);
         case 'cyclone': return OP.cap(p.x, p.y - 0.55, p.x, p.y + 0.75, p.r);
         case 'hellfire': return OP.cap(p.x, 0.35, p.x, 1.7, p.r);
-        case 'lance': { const s = Math.hypot(p.vx, p.vy), ux = p.vx / s, uy = p.vy / s; return OP.cap(p.x - ux * p.len / 2, p.y - uy * p.len / 2, p.x + ux * p.len / 2, p.y + uy * p.len / 2, p.r); }
+        case 'lance': case 'pellet': { const s = Math.hypot(p.vx, p.vy) || 1, ux = p.vx / s, uy = p.vy / s; return OP.cap(p.x - ux * p.len / 2, p.y - uy * p.len / 2, p.x + ux * p.len / 2, p.y + uy * p.len / 2, p.r); }
+        case 'firebird': return OP.cap(p.x, p.y, p.x, p.y, p.r);
+        case 'fireburst': return OP.cap(p.x, p.y - 0.35, p.x, p.y + 0.35, p.r);
       }
       return null;
     }
@@ -490,6 +527,20 @@
     updateProjectiles() {
       for (const p of this.proj) {
         p.t++;
+        if (p.kind === 'pellet') p.vy -= OP.G * OP.DT; // slingshot shots drop under gravity
+        if (p.homing) { // heat-seeking: turn toward the opponent's chest at a limited rate
+          const o = this.enemyTeam(p.owner).point;
+          if (o && o.onScreen && o.alive) {
+            const want = Math.atan2(o.y + o.def.height * 0.55 - p.y, o.x - p.x), cur = Math.atan2(p.vy, p.vx);
+            let d = want - cur; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
+            if (Math.abs(d) > 2.4) d = Math.abs(d) * (p.vx >= 0 ? 1 : -1); // target behind: loop up and over, never dive into the deck
+            const a = cur + clamp(d, -p.homing, p.homing), sp = Math.hypot(p.vx, p.vy);
+            p.vx = Math.cos(a) * sp; p.vy = Math.sin(a) * sp;
+            if (p.y < 0.5 && p.vy < 0) p.vy *= 0.3; // skim above the planks
+          }
+          if (p.t % 2 === 0) this.parts.push({ type: 'fire', x: p.x - p.vx * 0.03, y: p.y - p.vy * 0.03, vx: -p.vx * 0.2, vy: 0.5, life: 22, max: 22, s: 0.15 + Math.random() * 0.15 });
+        }
+        if (p.grow) { p.r = Math.min(p.maxR, p.r + p.grow); if (p.t % 2 === 0) for (let i = 0; i < 3; i++) this.parts.push({ type: 'fire', x: p.x + (Math.random() - 0.5) * p.r * 1.6, y: p.y + (Math.random() - 0.5) * p.r * 1.6, vx: p.vx * 0.4, vy: 1 + Math.random(), life: 20, max: 20, s: 0.15 + Math.random() * 0.2 }); }
         p.x += p.vx * OP.DT; p.y += p.vy * OP.DT;
         if (p.kind === 'cloud' && p.t === p.delay) {
           OP.Audio.sfx('thunder'); this.shake(p.big ? 6 : 4); this.flash = 3;
@@ -519,7 +570,13 @@
           if (p.hitCount >= p.hits) break;
           for (const hu of def.hurtBoxes()) {
             const c = OP.capsHit(box, hu);
-            if (c) { this.resolveHit(p.owner, def, p.mv, c, p); if (p.hitCount >= p.hits && p.kind !== 'cloud') p.dead = true; break; }
+            if (c) {
+              this.resolveHit(p.owner, def, p.mv, c, p);
+              if (p.explode) { this.spark(c.x, c.y, 'fire', 2); this.ring(c.x, c.y, '#ffb347'); this.shake(5); }
+              if (p.tabasco && def.state === 'hitstun') { def.setExpr('ko', 40); this.popText('HOT!!', def.x, def.y + def.def.height + 0.3, '#ff5a3d', 0.8); }
+              if (p.hitCount >= p.hits && p.kind !== 'cloud' && p.kind !== 'fireburst') p.dead = true;
+              break;
+            }
           }
         }
       }
@@ -545,6 +602,18 @@
 
     fighterFx() {
       for (const f of this.fighters) {
+        // burning: 6 damage every 20 frames plus flames licking up the body
+        if (f.burn > 0) {
+          if (!f.alive || f.state === 'tagout') f.burn = 0;
+          else {
+            f.burn--;
+            if (++f.burnTick % 20 === 0) {
+              f.hp = Math.max(this.mode === 'training' ? 1 : 0, f.hp - 6); f.red = Math.min(f.maxHp - f.hp, f.red + 3);
+              if (f.hp <= 0) this.onKO(f, -f.facing);
+            }
+            if (f.t % 2 === 0) this.parts.push({ type: 'fire', x: f.x + (Math.random() - 0.5) * 0.45 * f.def.height / 1.75, y: f.y + Math.random() * f.def.height * 0.9, vx: 0, vy: 1.2 + Math.random(), life: 18, max: 18, s: 0.08 + Math.random() * 0.1 });
+          }
+        }
         const J = f.J; if (!J) continue;
         // Sanji's cigarette smoke curls up from the mouth
         if (f.def.id === 'sanji' && f.state !== 'ko' && f.t % 12 === 0) {
@@ -589,7 +658,7 @@
         for (const k of ['haF', 'haB', 'ftF', 'ftB', 'hip']) add(f.toWorld(J[k]), 0.1 * (k[0] === 'h' ? f.fistScale : 1));
         const tip = (h, deg, len) => { const d = OP.limbDir(deg); return f.toWorld([h[0] + d[0] * len, h[1] + d[1] * len]); };
         if (f.flags.swordsOut) { add(tip(J.haF, P.swF ?? P.aF2 + 70, 0.85)); add(tip(J.haB, P.swB ?? P.aB2 + 70, 0.85)); }
-        if (P.staff != null && f.def.id === 'nami') add(tip(J.haF, P.staff, 0.62));
+        if (P.staff != null && f.def.weapon) add(tip(J['ha' + (f.def.staffHand || 'F')], P.staff, 0.62));
       }
       if (x0 === Infinity) return null;
       return { x0, x1, y0: Math.max(0, y0), y1 };
@@ -710,6 +779,7 @@
       if (f.alpha < 1) ctx.globalAlpha = f.alpha;
       if (dim) ctx.globalAlpha *= 0.35;
       if (f.move && f.move.fx === 'gatling' && f.state === 'attack' && f.mt >= f.move.startup && f.mt < f.move.startup + f.move.active) this.drawGatling(ctx, f);
+      if (f.bladeTrail.length > 1) this.drawBladeTrail(ctx, f);
       Dr.drawFighter(ctx, f, f.J, { flash: f.flashT > 3 });
       ctx.restore();
       if (f.move && f.move.fx === 'tornado' && f.state === 'attack') this.drawTornado(ctx, f);
@@ -726,6 +796,22 @@
         ctx.strokeStyle = Dr.OUT; ctx.lineWidth = 0.075; ctx.beginPath(); ctx.moveTo(sh[0], sh[1]); ctx.lineTo(ex, ey); ctx.stroke();
         ctx.strokeStyle = f.pal.skin; ctx.lineWidth = 0.05; ctx.stroke();
         ctx.fillStyle = f.pal.skin; ctx.beginPath(); ctx.arc(ex, ey, 0.075, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = Dr.OUT; ctx.lineWidth = 0.02; ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // Crescent smear behind a sword swing — makes Zoro's cuts readable at speed.
+    drawBladeTrail(ctx, f) {
+      const tr = f.bladeTrail;
+      ctx.save();
+      for (const sd of ['F', 'B']) {
+        for (let i = 1; i < tr.length; i++) {
+          const a = tr[i - 1][sd], b = tr[i][sd];
+          if (!a || !b) continue;
+          ctx.globalAlpha = (i / tr.length) * 0.55;
+          ctx.fillStyle = i > tr.length - 3 ? '#ffffff' : '#bfe8ff';
+          ctx.beginPath(); ctx.moveTo(a[0][0], a[0][1]); ctx.lineTo(a[1][0], a[1][1]); ctx.lineTo(b[1][0], b[1][1]); ctx.lineTo(b[0][0], b[0][1]); ctx.closePath(); ctx.fill();
+        }
       }
       ctx.restore();
     }
@@ -761,6 +847,35 @@
           const g = ctx.createRadialGradient(p.x, 1, 0.1, p.x, 1, 1.3);
           g.addColorStop(0, 'rgba(255,250,200,0.95)'); g.addColorStop(0.35, 'rgba(255,160,40,0.85)'); g.addColorStop(1, 'rgba(200,40,0,0)');
           ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(p.x, 1, 0.9 + Math.sin(p.t) * 0.05, 1.3, 0, 0, Math.PI * 2); ctx.fill();
+          break;
+        }
+        case 'pellet': {
+          const s = Math.hypot(p.vx, p.vy) || 1, ux = p.vx / s, uy = p.vy / s;
+          ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = p.r; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(p.x - ux * 0.6, p.y - uy * 0.6); ctx.lineTo(p.x, p.y); ctx.stroke();
+          ctx.fillStyle = p.explode ? '#d0342c' : p.tabasco ? '#ff6a2a' : '#3a3a44';
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 0.015; ctx.strokeStyle = '#1b1216'; ctx.stroke();
+          if (p.explode && p.t % 4 < 2) { ctx.fillStyle = '#ffe14d'; ctx.beginPath(); ctx.arc(p.x - ux * 0.08, p.y + p.r, 0.035, 0, Math.PI * 2); ctx.fill(); }
+          break;
+        }
+        case 'firebird': { // blazing bird with flapping wings, pointing along its flight
+          const a = Math.atan2(p.vy, p.vx), flap = Math.sin(p.t * 0.5) * 0.35;
+          ctx.translate(p.x, p.y); ctx.rotate(a);
+          const g = ctx.createRadialGradient(0, 0, 0.05, 0, 0, p.r * 1.6);
+          g.addColorStop(0, 'rgba(255,250,200,0.95)'); g.addColorStop(0.4, 'rgba(255,150,40,0.8)'); g.addColorStop(1, 'rgba(220,40,0,0)');
+          ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, p.r * 1.6, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = '#ff7a1a';
+          for (const sgn of [1, -1]) { ctx.beginPath(); ctx.moveTo(0.05, 0); ctx.quadraticCurveTo(-0.2, sgn * (0.5 + flap), -0.5, sgn * (0.7 + flap)); ctx.quadraticCurveTo(-0.3, sgn * 0.2, -0.2, 0); ctx.fill(); }
+          ctx.fillStyle = '#ffd23d'; ctx.beginPath(); ctx.ellipse(0, 0, p.r * 0.8, p.r * 0.35, 0, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(p.r * 0.8, 0.04); ctx.lineTo(p.r * 1.15, 0); ctx.lineTo(p.r * 0.8, -0.04); ctx.fill();
+          ctx.fillStyle = '#1b1216'; ctx.beginPath(); ctx.arc(p.r * 0.55, 0.05, 0.025, 0, Math.PI * 2); ctx.fill();
+          break;
+        }
+        case 'fireburst': {
+          const g = ctx.createRadialGradient(p.x, p.y, p.r * 0.2, p.x, p.y, p.r * 1.2);
+          g.addColorStop(0, 'rgba(255,255,220,0.95)'); g.addColorStop(0.45, 'rgba(255,150,30,0.85)'); g.addColorStop(1, 'rgba(210,40,0,0)');
+          ctx.globalAlpha = Math.min(1, p.life / 10);
+          ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(p.x, p.y, p.r * 1.2, p.r * 1.3, 0, 0, Math.PI * 2); ctx.fill();
           break;
         }
         case 'lance': {
