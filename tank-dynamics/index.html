@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#140c33">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Tank Dynamics</title>
+<meta name="description" content="Tank Dynamics — a turn-based artillery battle game from the Frog Federation. Aim, mind the wind, and blast your friends off the map!">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&family=Lilita+One&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="game.css">
+</head>
+<body>
+<canvas id="game" aria-label="Tank Dynamics battlefield"></canvas>
+
+<div id="ui">
+  <!-- title -->
+  <section class="screen" id="s-title">
+    <div class="logo"><span class="l1">TANK</span><span class="l2">DYNAMICS</span></div>
+    <p class="tagline">Aim. Mind the wind. <b>BOOM!</b></p>
+    <button class="big pulse" id="btn-start">Tap to Play</button>
+    <p class="fine">A Frog Federation game · <a href="../games/">more games</a></p>
+  </section>
+
+  <!-- home -->
+  <section class="screen" id="s-home" hidden>
+    <div class="profile" id="profile">
+      <div class="avatar" id="p-avatar">🐸</div>
+      <div class="pinfo">
+        <div class="pname"><span id="p-name">Guest</span> <button class="mini" id="p-rename" aria-label="Change name">✏️</button></div>
+        <div class="prank"><span id="p-title">Cadet</span> · <b id="p-rating">1000</b> rating</div>
+        <div class="pstats" id="p-stats">0 wins · 0 losses</div>
+      </div>
+      <div class="pacct">
+        <span class="badge" id="p-badge">Guest</span>
+        <button class="mini ghost" id="p-signin">Create account</button>
+      </div>
+    </div>
+    <div class="menu">
+      <button class="big c1" data-go="quick">⚡ Quick Match<small>Battle a player at your level</small></button>
+      <button class="big c2" data-go="cpu">🤖 Vs Computer<small>Practice against the CPU</small></button>
+      <button class="big c3" data-go="party">🎉 Local Party<small>2–4 players, one device</small></button>
+      <div class="row">
+        <button class="med" data-go="howto">How to Play</button>
+        <button class="med" data-go="settings">Settings</button>
+        <a class="med" href="../games/">← Games</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- setup + tank select -->
+  <section class="screen" id="s-select" hidden>
+    <header class="bar"><button class="med back" data-back>←</button><h2 id="sel-title">Choose your tank</h2><span class="sel-who" id="sel-who"></span></header>
+    <div class="select-wrap">
+      <div class="tanks" id="tank-grid"></div>
+      <div class="detail">
+        <canvas id="detail-art" width="420" height="200"></canvas>
+        <h3 id="d-name">Froggo</h3>
+        <p class="d-tag" id="d-tag"></p>
+        <div class="stats" id="d-stats"></div>
+        <ul class="weapons" id="d-weapons"></ul>
+      </div>
+    </div>
+    <div class="options" id="sel-options">
+      <div class="opt" id="opt-diff"><span>CPU</span><button data-diff="easy">Easy</button><button data-diff="normal" class="on">Normal</button><button data-diff="hard">Hard</button></div>
+      <div class="opt" id="opt-size"><span>Battle</span><button data-size="1v1" class="on">1 vs 1</button><button data-size="2v2">2 vs 2</button><button data-size="ffa3">3 FFA</button></div>
+      <div class="opt" id="opt-players"><span>Players</span><button data-players="2" class="on">2</button><button data-players="3">3</button><button data-players="4">4</button><button data-teams="ffa" class="on">Free-for-all</button><button data-teams="teams">Teams</button></div>
+      <div class="opt" id="opt-map"><span>Map</span><button data-map="random" class="on">Random</button></div>
+      <button class="big go" id="btn-ready">Ready!</button>
+    </div>
+  </section>
+
+  <!-- matchmaking -->
+  <section class="screen" id="s-mm" hidden>
+    <div class="mm">
+      <div class="radar"><div class="sweep"></div><div class="blip b1"></div><div class="blip b2"></div><div class="blip b3"></div></div>
+      <h2 id="mm-status">Finding an opponent…</h2>
+      <p id="mm-detail">Looking for players rated 900–1100</p>
+      <p class="fine" id="mm-where"></p>
+      <div class="row">
+        <button class="big c2" id="mm-cpu" hidden>🤖 Fight the computer instead</button>
+        <button class="med" id="mm-cancel">Cancel</button>
+      </div>
+      <p class="fine" id="mm-tip">Tip: open this page in another tab to battle yourself!</p>
+    </div>
+  </section>
+
+  <!-- battle controls -->
+  <section class="screen" id="s-battle" hidden>
+    <div id="weapon-btns">
+      <button data-w="0" class="wbtn"><b>1</b><span>Shot 1</span></button>
+      <button data-w="1" class="wbtn"><b>2</b><span>Shot 2</span></button>
+      <button data-w="2" class="wbtn ss"><b>SS</b><span>Super</span><i class="gauge"></i></button>
+    </div>
+    <div id="touch-pad" hidden>
+      <button class="pad up" data-k="UP" aria-label="Aim up">▲</button>
+      <button class="pad down" data-k="DOWN" aria-label="Aim down">▼</button>
+      <button class="pad left" data-k="LEFT" aria-label="Move left">◀</button>
+      <button class="pad right" data-k="RIGHT" aria-label="Move right">▶</button>
+    </div>
+    <button id="fire-btn" data-k="FIRE" hidden>FIRE<small>hold · release</small></button>
+    <div class="corner">
+      <button class="icon" id="btn-view" aria-label="Toggle map view">🔍</button>
+      <button class="icon" id="btn-skip" aria-label="Pass turn">⏭</button>
+      <button class="icon" id="btn-pause" aria-label="Pause">II</button>
+    </div>
+    <div class="waiting" id="waiting" hidden>Waiting for opponent…</div>
+  </section>
+
+  <!-- results -->
+  <section class="screen" id="s-results" hidden>
+    <div class="results">
+      <h1 id="r-title">VICTORY!</h1>
+      <p id="r-sub"></p>
+      <div class="rating" id="r-rating" hidden><span id="r-old">1000</span> → <b id="r-new">1016</b> <em id="r-delta">+16</em></div>
+      <table id="r-table"></table>
+      <div class="row">
+        <button class="big c1" id="r-again">Play again</button>
+        <button class="med" id="r-home">Home</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- overlays -->
+  <section class="overlay" id="o-pause" hidden>
+    <div class="card">
+      <h2>Paused</h2>
+      <button class="big c2" id="pz-resume">Resume</button>
+      <button class="med" data-go="howto">How to Play</button>
+      <button class="med" data-go="settings">Settings</button>
+      <button class="med danger" id="pz-quit">Quit battle</button>
+    </div>
+  </section>
+  <section class="overlay" id="o-howto" hidden>
+    <div class="card wide">
+      <h2>How to Play</h2>
+      <div class="cols">
+        <div>
+          <h3>Your turn</h3>
+          <ul>
+            <li><b>Move</b> ← → (or ◀ ▶) — uses fuel</li>
+            <li><b>Aim</b> ↑ ↓ (or ▲ ▼) — angle is shown on the dial</li>
+            <li><b>Shoot</b> hold <b>SPACE</b> (or FIRE) to charge power, <b>let go</b> to fire</li>
+            <li><b>Shots</b> 1 · 2 · SS — the Super charges as you deal and take damage</li>
+            <li><b>🔍 / Z</b> see the whole map · <b>⏭ / Q</b> pass</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Winning</h3>
+          <ul>
+            <li>Knock out every enemy tank, or sink them in the water.</li>
+            <li><b>Wind</b> pushes every shot — check the arrow at the top!</li>
+            <li>The white ▼ on the power bar marks your last shot. Adjust from there.</li>
+            <li><b>Delay</b>: big shots and long drives make you wait longer for your next turn.</li>
+            <li>Craters are real: blast the ground out from under a tank for a big fall.</li>
+            <li>After turn 26 it's <b>Sudden Death</b>: the water rises!</li>
+          </ul>
+        </div>
+      </div>
+      <button class="big c2" data-close>Got it!</button>
+    </div>
+  </section>
+  <section class="overlay" id="o-settings" hidden>
+    <div class="card">
+      <h2>Settings</h2>
+      <label>Music <input type="range" min="0" max="1" step="0.05" id="set-music"></label>
+      <label>Sound FX <input type="range" min="0" max="1" step="0.05" id="set-sfx"></label>
+      <label class="check"><input type="checkbox" id="set-shake"> Screen shake</label>
+      <label class="check"><input type="checkbox" id="set-guide"> Aim helper (short dotted line)</label>
+      <button class="big c2" data-close>Done</button>
+    </div>
+  </section>
+  <section class="overlay" id="o-toast" hidden><div class="toast" id="toast"></div></section>
+</div>
+
+<div id="rotate" hidden>
+  <div class="rot-icon">📱↻</div>
+  <p>Turn your phone sideways for the best view.</p>
+  <button id="rotate-dismiss">Play anyway</button>
+</div>
+
+<noscript><p class="noscript">Tank Dynamics needs JavaScript.</p></noscript>
+
+<script src="../shared/ff-profile.js"></script>
+<script src="../shared/ff-audio.js"></script>
+<script src="js/core.js"></script>
+<script src="js/terrain.js"></script>
+<script src="js/tanks.js"></script>
+<script src="js/game.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/net.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/render.js"></script>
+<script src="js/skins.js"></script>
+<script src="js/hud.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

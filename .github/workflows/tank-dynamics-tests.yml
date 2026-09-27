@@ -1,0 +1,48 @@
+name: Tank Dynamics tests
+
+on:
+  push:
+    paths: ['tank-dynamics/**', 'shared/**', '.github/workflows/tank-dynamics-tests.yml']
+  pull_request:
+    paths: ['tank-dynamics/**', 'shared/**', '.github/workflows/tank-dynamics-tests.yml']
+
+jobs:
+  engine:
+    name: Engine (physics, weapons, AI, netcode, relay)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22   # 22 has a built-in WebSocket client for the relay test
+      - name: Run engine regression suite (no dependencies)
+        run: node tank-dynamics/tests/run.js
+
+  browser:
+    name: Browser play-tests (menus, touch, audio, two-tab online game)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Playwright + Chromium
+        run: |
+          npm i --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Run browser play-tests
+        run: node tank-dynamics/tests/browser.js
+
+  balance:
+    name: Balance play-test (every tank vs every tank, every map)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: CPU vs CPU round robin
+        run: node tank-dynamics/tools/playtest.js --check

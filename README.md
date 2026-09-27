@@ -18,3 +18,14 @@ A fan-made (non-commercial) One Piece tag fighting game lives in
 [`one-piece-frog-style/`](one-piece-frog-style/). You can play it at
 https://jchuanico.github.io/frogfederation/one-piece-frog-style/ on a keyboard, gamepad, or phone.
 ONE PIECE © Eiichiro Oda / Shueisha, Toei Animation.
+
+### Tank Dynamics
+A turn-based artillery game (like GunBound) with six cartoon tanks, destructible landscapes, wind
+and real ballistics. Play the computer, a local party, or rated quick matches:
+[`tank-dynamics/`](tank-dynamics/), https://jchuanico.github.io/frogfederation/tank-dynamics/
+
+### Making more games
+[`docs/GAME_DEV_GUIDE.md`](docs/GAME_DEV_GUIDE.md) is the playbook for new Frog Federation games,
+and the `game-dev` Claude Code agent ([`.claude/agents/game-dev.md`](.claude/agents/game-dev.md))
+builds a whole game from a short idea by following it. Shared player-profile and audio code lives
+in [`shared/`](shared/).
